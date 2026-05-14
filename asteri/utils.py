@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import importlib
 
 class Colors:
     PURPLE = '\033[95m'
@@ -60,7 +61,7 @@ logger = setup_logging()
 def print_banner():
     banner = f"""
         {Colors.BOLD}{Colors.PURPLE}*ASTERI*{Colors.ENDC}
-         {Colors.CYAN}v1.0.0{Colors.ENDC}
+         {Colors.CYAN}v1.1.1{Colors.ENDC}
     {Colors.BOLD}{Colors.CYAN}ASTERI{Colors.ENDC} {Colors.YELLOW}Web Server{Colors.ENDC}
     """
     print(banner)
@@ -82,7 +83,7 @@ def import_app(app_path):
         # Force re-import by removing from sys.modules if it exists
         if module_path in sys.modules:
             del sys.modules[module_path]
-        module = __import__(module_path)
+        module = importlib.import_module(module_path)
         return getattr(module, app_name)
     except Exception as e:
         logger.error(f"Could not import app '{Colors.BOLD}{app_path}{Colors.ENDC}': {e}")

@@ -9,8 +9,8 @@ import re
 CONCURRENCY = 50
 REQUESTS = 1000
 TARGET_URL = "http://127.0.0.1:8080/"
-WSGI_APP = "example_wsgi:app"
-ASGI_APP = "example_asgi:app"
+WSGI_APP = "example_flask:app"
+ASGI_APP = "example_fastapi:app"
 
 def run_server(command):
     """Starts a server in a subprocess."""

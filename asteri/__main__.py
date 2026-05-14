@@ -2,6 +2,7 @@ import logging
 import argparse
 import sys
 import os
+import importlib
 from asteri.arbiter import Arbiter
 from asteri.workers.sync import SyncWorker
 from asteri.workers.gthread import GThreadWorker
@@ -17,7 +18,7 @@ def import_app(app_path):
     try:
         module_path, app_name = app_path.split(":")
         sys.path.insert(0, os.getcwd())
-        module = __import__(module_path)
+        module = importlib.import_module(module_path)
         return getattr(module, app_name)
     except Exception as e:
         logger.error(f"Could not import app '{Colors.BOLD}{app_path}{Colors.ENDC}': {e}")
@@ -39,7 +40,7 @@ def main():
     # Config Group
     config_group = parser.add_argument_group("Config")
     config_group.add_argument("-c", "--config", help="The Asteri config file.")
-    config_group.add_argument("-v", "--version", action="version", version="Asteri v1.0.0")
+    config_group.add_argument("-v", "--version", action="version", version="Asteri v1.1.1")
     config_group.add_argument("--check-config", action="store_true", help="Check the configuration and exit.")
     config_group.add_argument("--print-config", action="store_true", help="Print the configuration settings.")
 
@@ -163,6 +164,8 @@ def main():
 
     # Preload
     if args.preload:
+        if args.reload:
+            logger.warning(f"{Colors.YELLOW}Both --reload and --preload are enabled. Changes to preloaded code will NOT be picked up.{Colors.ENDC}")
         from asteri.utils import import_app
         import_app(args.app)
     
@@ -172,7 +175,7 @@ def main():
     arbiter = Arbiter(
         args.app, worker_class, 
         num_workers=args.workers, 
-        bind=binds[0], 
+        binds=args.bind, 
         reload=args.reload,
         certfile=args.certfile,
         keyfile=args.keyfile,

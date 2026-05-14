@@ -15,12 +15,12 @@ except ImportError:
 class Arbiter:
     """The Master process that manages workers."""
     
-    def __init__(self, app_path, worker_class, num_workers=1, bind="0.0.0.0:8000", reload=False, certfile=None, keyfile=None,
+    def __init__(self, app_path, worker_class, num_workers=1, binds=None, reload=False, certfile=None, keyfile=None,
                  daemon=False, pidfile=None, user=None, group=None, umask=0, proc_name=None, timeout=30):
         self.app_path = app_path
         self.worker_class = worker_class
         self.num_workers = num_workers
-        self.bind = bind
+        self.binds = binds or ["127.0.0.1:8000"]
         self.reload = reload
         self.certfile = certfile
         self.keyfile = keyfile
@@ -32,7 +32,7 @@ class Arbiter:
         self.proc_name = proc_name or "master"
         self.timeout = timeout
         self.workers = {} # pid -> worker_instance
-        self.sock = None
+        self.socks = [] # list of listening sockets
         self.alive = True
         self.pid = os.getpid()
         self.reloader = None
@@ -55,24 +55,30 @@ class Arbiter:
         elif self.reload:
             logger.warning("Watchdog not available, falling back to manual reload.")
         
-        # Create listener socket
-        host, port = self.bind.split(":")
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        
-        if self.certfile and self.keyfile:
-            import ssl
-            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            context.load_cert_chain(certfile=self.certfile, keyfile=self.keyfile)
-            self.sock = context.wrap_socket(self.sock, server_side=True)
-            logger.info(f"SSL {Colors.GREEN}enabled{Colors.ENDC} ({self.certfile})")
-        
-        self.sock.bind((host, int(port)))
-        self.sock.listen(1024)
-        self.sock.setblocking(False)
-        
-        scheme = "https" if self.certfile else "http"
-        logger.info(f"Listening on {Colors.UNDERLINE}{scheme}://{self.bind}{Colors.ENDC}")
+        # Create listener sockets for all binds
+        for bind in self.binds:
+            try:
+                host, port = bind.split(":")
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                
+                if self.certfile and self.keyfile:
+                    import ssl
+                    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                    context.load_cert_chain(certfile=self.certfile, keyfile=self.keyfile)
+                    sock = context.wrap_socket(sock, server_side=True)
+                
+                sock.bind((host, int(port)))
+                sock.listen(1024)
+                sock.setblocking(False)
+                self.socks.append(sock)
+                
+                scheme = "https" if self.certfile else "http"
+                logger.info(f"Listening on {Colors.UNDERLINE}{scheme}://{bind}{Colors.ENDC}")
+            except Exception as e:
+                logger.error(f"Failed to bind to {bind}: {e}")
+                self.stop()
+                sys.exit(1)
         
         self.setup_signals()
         self.manage_workers()
@@ -161,7 +167,7 @@ class Arbiter:
                     del self.workers[pid]
 
     def spawn_worker(self):
-        worker = self.worker_class(0, self.pid, self.sock, self.app_path, self.timeout)
+        worker = self.worker_class(0, self.pid, self.socks, self.app_path, self.timeout)
         pid = os.fork()
         
         if pid == 0: # Child
@@ -201,4 +207,8 @@ class Arbiter:
             self.reloader.join()
         
         logger.info("Asteri shutting down.")
-        self.sock.close()
+        for sock in self.socks:
+            try:
+                sock.close()
+            except:
+                pass

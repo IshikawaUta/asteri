@@ -16,15 +16,18 @@ class HTTPParser:
     def parse(raw_data):
         """Simple HTTP/1.1 parser."""
         try:
-            # Split headers and body
-            header_part, _, body = raw_data.partition(b"\r\n\r\n")
-            lines = header_part.split(b"\r\n")
+            # Split headers and body using bytes to keep body intact
+            header_bytes, _, body = raw_data.partition(b"\r\n\r\n")
+            
+            # Decode headers using latin-1 (standard for HTTP)
+            header_part = header_bytes.decode('latin-1')
+            lines = header_part.split('\r\n')
             
             if not lines or not lines[0]:
                 return None
 
-            # Request line
-            request_line = lines[0].decode('ascii').split()
+            # Request line (e.g., "GET / HTTP/1.1")
+            request_line = lines[0].split()
             if len(request_line) < 3:
                 return None
             
@@ -33,9 +36,9 @@ class HTTPParser:
             # Headers
             headers = {}
             for line in lines[1:]:
-                if b":" in line:
-                    key, value = line.split(b":", 1)
-                    headers[key.decode('ascii').lower().strip()] = value.decode('ascii').strip()
+                if ":" in line:
+                    key, value = line.split(":", 1)
+                    headers[key.lower().strip()] = value.strip()
             
             return HTTPRequest(method, path, version, headers, body)
         except Exception as e:
@@ -108,6 +111,11 @@ class HTTP2Handler:
 def build_http_response(status_code, headers, body):
     """Build a standard HTTP/1.1 response."""
     status_text = http.client.responses.get(status_code, "Unknown")
+    
+    # Ensure body is bytes for length calculation
+    if isinstance(body, str):
+        body = body.encode('utf-8')
+    
     response = f"HTTP/1.1 {status_code} {status_text}\r\n"
     
     if "Content-Length" not in headers and body:
@@ -117,4 +125,4 @@ def build_http_response(status_code, headers, body):
         response += f"{key}: {value}\r\n"
     
     response += "\r\n"
-    return response.encode('ascii') + (body if isinstance(body, bytes) else body.encode('utf-8'))
+    return response.encode('ascii') + body

@@ -5,13 +5,14 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="asteri",
-    version="1.0.1",
+    version="1.1.1",
     author="Ishikawa Uta",
     description="Asteri: High Performance Python Web Server",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/IshikawaUta/asteri",
     packages=find_packages(),
+    license="MIT",
     classifiers=[
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.8",
@@ -20,7 +21,6 @@ setup(
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
         "Programming Language :: Python :: 3.13",
-        "License :: OSI Approved :: MIT License",
         "Operating System :: POSIX :: Linux",
         "Topic :: Internet :: WWW/HTTP :: WSGI :: Server",
         "Topic :: Internet :: WWW/HTTP :: WSGI :: Application",

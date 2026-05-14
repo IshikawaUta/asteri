@@ -58,7 +58,7 @@ class TestAsteriCLI(unittest.TestCase):
     def test_version(self):
         result = subprocess.run(self.bin_name + ["-v"], capture_output=True, text=True, env=self.test_env)
         self.assertEqual(result.returncode, 0)
-        self.assertIn("Asteri v1.0.0", result.stdout)
+        self.assertIn("Asteri v1.1.1", result.stdout)
 
     def test_print_config(self):
         result = subprocess.run(self.bin_name + [self.default_app, "--print-config"], capture_output=True, text=True, env=self.test_env)
@@ -72,15 +72,19 @@ class TestAsteriCLI(unittest.TestCase):
         try:
             self.assertTrue(os.path.exists(pid_file))
         finally:
+            if proc.stdout: proc.stdout.close()
             proc.terminate()
             proc.wait()
             if os.path.exists(pid_file): os.remove(pid_file)
 
     def test_env_vars(self):
         proc = self.run_cmd(["-e", "TEST_VAR=ASTRONAUT"])
-        self.assertIsNone(proc.poll())
-        proc.terminate()
-        proc.wait()
+        try:
+            self.assertIsNone(proc.poll())
+        finally:
+            if proc.stdout: proc.stdout.close()
+            proc.terminate()
+            proc.wait()
 
     def test_log_file(self):
         log_file = "test_error.log"
@@ -89,6 +93,7 @@ class TestAsteriCLI(unittest.TestCase):
         try:
             self.assertTrue(os.path.exists(log_file))
         finally:
+            if proc.stdout: proc.stdout.close()
             proc.terminate()
             proc.wait()
             if os.path.exists(log_file): os.remove(log_file)
@@ -123,14 +128,18 @@ class TestAsteriCLI(unittest.TestCase):
                 time.sleep(1)
             self.assertGreaterEqual(len(parent.children()), 3)
         finally:
+            if proc.stdout: proc.stdout.close()
             proc.terminate()
             proc.wait()
 
     def test_worker_class_gevent(self):
         proc = self.run_cmd(["-k", "gevent"])
-        self.assertIsNone(proc.poll())
-        proc.terminate()
-        proc.wait()
+        try:
+            self.assertIsNone(proc.poll())
+        finally:
+            if proc.stdout: proc.stdout.close()
+            proc.terminate()
+            proc.wait()
 
     def test_config_file_loading(self):
         conf_file = "test_config.py"
@@ -144,15 +153,21 @@ class TestAsteriCLI(unittest.TestCase):
 
     def test_umask(self):
         proc = self.run_cmd(["--umask", "007"])
-        self.assertIsNone(proc.poll())
-        proc.terminate()
-        proc.wait()
+        try:
+            self.assertIsNone(proc.poll())
+        finally:
+            if proc.stdout: proc.stdout.close()
+            proc.terminate()
+            proc.wait()
 
     def test_preload(self):
         proc = self.run_cmd(["--preload"])
-        self.assertIsNone(proc.poll())
-        proc.terminate()
-        proc.wait()
+        try:
+            self.assertIsNone(proc.poll())
+        finally:
+            if proc.stdout: proc.stdout.close()
+            proc.terminate()
+            proc.wait()
 
     def test_chdir(self):
         tmp_dir = "tmp_test_chdir"
@@ -163,10 +178,64 @@ class TestAsteriCLI(unittest.TestCase):
         try:
             self.assertIsNone(proc.poll())
         finally:
+            if proc.stdout: proc.stdout.close()
             proc.terminate()
             proc.wait()
             import shutil
             shutil.rmtree(tmp_dir)
+
+    def test_multiple_binds(self):
+        port1 = self.get_free_port()
+        port2 = self.get_free_port()
+        proc = self.run_cmd(["-b", f"127.0.0.1:{port1}", "-b", f"127.0.0.1:{port2}"])
+        try:
+            self.assertIsNone(proc.poll())
+            import urllib.request
+            resp1 = urllib.request.urlopen(f"http://127.0.0.1:{port1}")
+            self.assertEqual(resp1.status, 200)
+            resp2 = urllib.request.urlopen(f"http://127.0.0.1:{port2}")
+            self.assertEqual(resp2.status, 200)
+        finally:
+            if proc.stdout: proc.stdout.close()
+            proc.terminate()
+            proc.wait()
+
+    def test_worker_class_asgi(self):
+        proc = self.run_cmd(["-k", "asgi", "example_asgi:app"])
+        try:
+            self.assertIsNone(proc.poll())
+        finally:
+            if proc.stdout: proc.stdout.close()
+            proc.terminate()
+            proc.wait()
+
+    def test_worker_class_gthread(self):
+        proc = self.run_cmd(["-k", "gthread", "--threads", "2"])
+        try:
+            self.assertIsNone(proc.poll())
+        finally:
+            if proc.stdout: proc.stdout.close()
+            proc.terminate()
+            proc.wait()
+
+    def test_reload_flag(self):
+        # We just test if it starts with the flag without crashing
+        proc = self.run_cmd(["--reload"])
+        try:
+            self.assertIsNone(proc.poll())
+        finally:
+            if proc.stdout: proc.stdout.close()
+            proc.terminate()
+            proc.wait()
+
+    def test_log_level_debug(self):
+        proc = self.run_cmd(["--log-level", "debug"])
+        try:
+            self.assertIsNone(proc.poll())
+        finally:
+            if proc.stdout: proc.stdout.close()
+            proc.terminate()
+            proc.wait()
 
 if __name__ == "__main__":
     unittest.main()

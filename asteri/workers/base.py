@@ -2,13 +2,18 @@ import os
 import signal
 import socket
 import time
+import psutil
+import platform
+from datetime import datetime
 from ..utils import logger, set_proctitle, Colors
+from ..http import HTTPParser, HTTP2Handler, build_http_response
+from ..uwsgi import UWSGIHandler
 
 class BaseWorker:
-    def __init__(self, age, ppid, socket, app_path, timeout):
+    def __init__(self, age, ppid, sockets, app_path, timeout):
         self.age = age
         self.ppid = ppid
-        self.socket = socket
+        self.sockets = sockets
         self.app_path = app_path
         self.app = None
         self.timeout = timeout
@@ -45,20 +50,113 @@ class BaseWorker:
     def handle_request(self, client_sock):
         """Common logic to determine protocol and dispatch."""
         try:
+            client_sock.settimeout(5.0)
             data = client_sock.recv(4096)
             if not data:
                 return
 
-            from ..http import HTTPParser, HTTP2Handler, build_http_response
-            from ..uwsgi import UWSGIHandler
-
             # Internal Status Dashboard
             if b"GET /asteri-status" in data:
-                status_body = f"Asteri Web Server Status\n"
-                status_body += f"Worker PID: {os.getpid()}\n"
-                status_body += f"Parent PID: {self.ppid}\n"
-                status_body += f"Worker Type: {self.__class__.__name__}\n"
-                client_sock.sendall(build_http_response(200, {"Content-Type": "text/plain"}, status_body))
+                cpu_usage = psutil.cpu_percent()
+                mem = psutil.virtual_memory()
+                boot_time = datetime.fromtimestamp(psutil.boot_time()).strftime("%Y-%m-%d %H:%M:%S")
+                
+                status_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Asteri Status</title>
+    <style>
+        :root {{
+            --bg: #0f172a;
+            --card: rgba(30, 41, 59, 0.7);
+            --primary: #6366f1;
+            --accent: #a855f7;
+            --text: #f8fafc;
+            --text-dim: #94a3b8;
+            --success: #22c55e;
+        }}
+        body {{
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-image: radial-gradient(circle at top right, #1e1b4b, transparent),
+                              radial-gradient(circle at bottom left, #1e1b4b, transparent);
+        }}
+        .container {{
+            width: 90%;
+            max-width: 800px;
+            background: var(--card);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 24px;
+            padding: 2rem;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+        }}
+        .header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 1rem;
+        }}
+        h1 {{ margin: 0; font-size: 1.8rem; background: linear-gradient(to right, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+        .badge {{ background: var(--success); color: white; padding: 0.2rem 0.8rem; border-radius: 99px; font-size: 0.8rem; font-weight: bold; }}
+        .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; }}
+        .stat-card {{ background: rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 16px; border: 1px solid rgba(255,255,255,0.05); transition: transform 0.3s; }}
+        .stat-card:hover {{ transform: translateY(-5px); background: rgba(255,255,255,0.08); }}
+        .stat-label {{ color: var(--text-dim); font-size: 0.9rem; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 1px; }}
+        .stat-value {{ font-size: 1.5rem; font-weight: bold; color: var(--text); }}
+        .footer {{ margin-top: 2rem; text-align: center; color: var(--text-dim); font-size: 0.8rem; opacity: 0.6; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌟 Asteri Dashboard</h1>
+            <span class="badge">RUNNING</span>
+        </div>
+        <div class="grid">
+            <div class="stat-card">
+                <div class="stat-label">Worker PID</div>
+                <div class="stat-value">{os.getpid()}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Parent PID</div>
+                <div class="stat-value">{self.ppid}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Worker Type</div>
+                <div class="stat-value">{self.__class__.__name__}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">CPU Usage</div>
+                <div class="stat-value">{cpu_usage}%</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Memory Usage</div>
+                <div class="stat-value">{mem.percent}%</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Operating System</div>
+                <div class="stat-value">{platform.system()}</div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            Asteri Web Server v1.1.1 &bull; {datetime.now().strftime("%H:%M:%S")}
+        </div>
+    </div>
+</body>
+</html>"""
+                client_sock.sendall(build_http_response(200, {"Content-Type": "text/html"}, status_html))
+                logger.info(f"GET /asteri-status - {Colors.GREEN}200{Colors.ENDC}")
                 return
 
             if HTTP2Handler.is_http2(data):
@@ -75,6 +173,9 @@ class BaseWorker:
                 req = HTTPParser.parse(data)
                 if req:
                     self.handle_http(client_sock, req)
+        except socket.timeout:
+            # Idle connection, just close it silently
+            pass
         except Exception as e:
             logger.error(f"Error handling request: {e}")
         finally:

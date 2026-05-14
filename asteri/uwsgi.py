@@ -28,14 +28,14 @@ class UWSGIHandler:
             key_len = struct.unpack("<H", var_data[pos:pos+2])[0]
             pos += 2
             if pos + key_len > size: break
-            key = var_data[pos:pos+key_len].decode('ascii')
+            key = var_data[pos:pos+key_len].decode('latin-1')
             pos += key_len
             
             if pos + 2 > size: break
             val_len = struct.unpack("<H", var_data[pos:pos+2])[0]
             pos += 2
             if pos + val_len > size: break
-            val = var_data[pos:pos+val_len].decode('ascii')
+            val = var_data[pos:pos+val_len].decode('latin-1')
             pos += val_len
             
             vars_dict[key] = val

@@ -2,28 +2,38 @@ import os
 import socket
 import sys
 import io
+import select
+import time
 from .base import BaseWorker
 from ..http import build_http_response
+from ..utils import logger, Colors
 
 class SyncWorker(BaseWorker):
     def run(self):
         self.init_process()
         
-        # Configure socket to be non-blocking with a timeout for select-like behavior
-        self.socket.settimeout(1.0)
+        # Sockets are already non-blocking from Arbiter
         
         while self.alive:
             try:
-                client, addr = self.socket.accept()
-                self.handle_request(client)
-            except socket.timeout:
+                # Wait for any socket to be ready
+                readable, _, _ = select.select(self.sockets, [], [], 1.0)
+                
+                for sock in readable:
+                    client, addr = sock.accept()
+                    self.handle_request(client)
+                
                 # Check parent process (Arbiter) is still alive
                 if sys.platform != 'win32' and os.getppid() != self.ppid:
                     self.alive = False
                     break
+                    
+            except (socket.timeout, InterruptedError, BlockingIOError):
+                continue
             except Exception as e:
                 if self.alive:
-                    pass # Log or handle accept errors
+                    logger.error(f"Accept error: {e}")
+                    time.sleep(0.1) # Avoid busy loop on persistent error
 
     def handle_http(self, sock, req):
         """Standard WSGI handling for HTTP/1.1."""
@@ -71,13 +81,24 @@ class SyncWorker(BaseWorker):
 
         try:
             result = self.app(env, start_response)
-            status_code = int(headers_set[0].split()[0])
-            headers = dict(headers_set[1])
             
-            body = b"".join(result) if hasattr(result, '__iter__') else result
+            if not headers_set:
+                status_code = 500
+                headers = {"Content-Type": "text/plain"}
+                body = b"Internal Server Error: Application failed to start response."
+            else:
+                status_code = int(headers_set[0].split()[0])
+                headers = dict(headers_set[1])
+                body = b"".join(result) if hasattr(result, '__iter__') else result
             if hasattr(result, 'close'):
                 result.close()
 
             sock.sendall(build_http_response(status_code, headers, body))
+            
+            # Access Log
+            status_color = Colors.GREEN if status_code < 400 else Colors.YELLOW if status_code < 500 else Colors.RED
+            logger.info(f"{env['REQUEST_METHOD']} {env['PATH_INFO']} - {status_color}{status_code}{Colors.ENDC}")
+            
         except Exception as e:
+            logger.error(f"WSGI Error: {e}")
             sock.sendall(build_http_response(500, {}, f"WSGI Error: {e}"))
