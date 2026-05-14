@@ -1,0 +1,30 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+asteri.log
+*.pem
+*.pid
+bin/
+cmd/
+dist/
+build/
+*.egg-info/
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
