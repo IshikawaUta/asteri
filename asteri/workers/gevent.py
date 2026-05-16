@@ -12,8 +12,8 @@ except ImportError:
     GEVENT_AVAILABLE = False
 
 class GeventWorker(SyncWorker):
-    def __init__(self, age, ppid, sockets, app, timeout):
-        super().__init__(age, ppid, sockets, app, timeout)
+    def __init__(self, age, ppid, sockets, app, timeout, **kwargs):
+        super().__init__(age, ppid, sockets, app, timeout, **kwargs)
 
     def run(self):
         if not GEVENT_AVAILABLE:
@@ -25,13 +25,13 @@ class GeventWorker(SyncWorker):
         
         self.init_process()
         
-        def handle(client_sock, address):
-            self.handle_request(client_sock)
-
         # Spawn a StreamServer for each socket
         servers = []
         for sock in self.sockets:
-            server = StreamServer(sock, handle)
+            def handle_factory(listener_sock):
+                return lambda client_sock, address: self.handle_request(client_sock, listener_sock=listener_sock)
+            
+            server = StreamServer(sock, handle_factory(sock))
             servers.append(gevent.spawn(server.serve_forever))
             
         # Wait for master to die

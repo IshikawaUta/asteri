@@ -16,7 +16,8 @@ class Arbiter:
     """The Master process that manages workers."""
     
     def __init__(self, app_path, worker_class, num_workers=1, binds=None, reload=False, certfile=None, keyfile=None,
-                 daemon=False, pidfile=None, user=None, group=None, umask=0, proc_name=None, timeout=30):
+                 daemon=False, pidfile=None, user=None, group=None, umask=0, proc_name=None, timeout=30,
+                 backlog=2048, reuse_port=False, **worker_kwargs):
         self.app_path = app_path
         self.worker_class = worker_class
         self.num_workers = num_workers
@@ -31,6 +32,9 @@ class Arbiter:
         self.umask = umask
         self.proc_name = proc_name or "master"
         self.timeout = timeout
+        self.backlog = backlog
+        self.reuse_port = reuse_port
+        self.worker_kwargs = worker_kwargs
         self.workers = {} # pid -> worker_instance
         self.socks = [] # list of listening sockets
         self.alive = True
@@ -62,6 +66,9 @@ class Arbiter:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 
+                if self.reuse_port and hasattr(socket, 'SO_REUSEPORT'):
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+                
                 if self.certfile and self.keyfile:
                     import ssl
                     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -69,7 +76,7 @@ class Arbiter:
                     sock = context.wrap_socket(sock, server_side=True)
                 
                 sock.bind((host, int(port)))
-                sock.listen(1024)
+                sock.listen(self.backlog)
                 sock.setblocking(False)
                 self.socks.append(sock)
                 
@@ -77,7 +84,6 @@ class Arbiter:
                 logger.info(f"Listening on {Colors.UNDERLINE}{scheme}://{bind}{Colors.ENDC}")
             except Exception as e:
                 logger.error(f"Failed to bind to {bind}: {e}")
-                self.stop()
                 sys.exit(1)
         
         self.setup_signals()
@@ -167,7 +173,7 @@ class Arbiter:
                     del self.workers[pid]
 
     def spawn_worker(self):
-        worker = self.worker_class(0, self.pid, self.socks, self.app_path, self.timeout)
+        worker = self.worker_class(0, self.pid, self.socks, self.app_path, self.timeout, **self.worker_kwargs)
         pid = os.fork()
         
         if pid == 0: # Child
@@ -206,9 +212,32 @@ class Arbiter:
             self.reloader.stop()
             self.reloader.join()
         
-        logger.info("Asteri shutting down.")
+        logger.info("Asteri shutting down. Waiting for workers...")
+        
+        # Wait for workers to exit (graceful wait)
+        wait_start = time.time()
+        while self.workers and (time.time() - wait_start < 10):
+            try:
+                pid, status = os.waitpid(-1, os.WNOHANG)
+                if pid > 0:
+                    if pid in self.workers:
+                        del self.workers[pid]
+                else:
+                    time.sleep(0.1)
+            except ChildProcessError:
+                break
+        
+        # Force kill any remaining workers
+        if self.workers:
+            logger.warning(f"Forcing {len(self.workers)} workers to exit...")
+            self.stop_workers(signal.SIGKILL)
+
+        logger.info("Asteri shutdown complete.")
         for sock in self.socks:
             try:
                 sock.close()
             except:
                 pass
+        
+        if self.pidfile and os.path.exists(self.pidfile):
+            os.remove(self.pidfile)

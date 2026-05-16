@@ -24,18 +24,19 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install setuptools wheel build psutil gevent
-
-    - name: Install Asteri and Dependencies
-      run: |
-        python -m pip install --upgrade pip
+        pip install setuptools wheel build psutil gevent watchdog h2
         pip install -e .
         pip install flask fastapi
 
-    - name: Verify CLI
+    - name: Verify CLI Version
       run: |
         asteri --version
 
-    - name: Run Tests
+    - name: Run Unit Tests
       run: |
         python tests/test_cli.py
+
+    - name: Run Full Regression Suite
+      run: |
+        chmod +x test_asteri_cli.sh
+        ./test_asteri_cli.sh

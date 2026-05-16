@@ -1,4 +1,4 @@
-# 🌟 Asteri Web Server v1.1.1
+# 🌟 Asteri Web Server v1.2.1
 
 **Asteri** is a high-performance, production-ready Python web server designed with a rich and intuitive CLI argument system. Asteri supports various protocols ranging from WSGI and ASGI to binary uWSGI.
 

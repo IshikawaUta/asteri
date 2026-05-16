@@ -10,7 +10,7 @@ from ..http import HTTPParser, HTTP2Handler, build_http_response
 from ..uwsgi import UWSGIHandler
 
 class BaseWorker:
-    def __init__(self, age, ppid, sockets, app_path, timeout):
+    def __init__(self, age, ppid, sockets, app_path, timeout, **kwargs):
         self.age = age
         self.ppid = ppid
         self.sockets = sockets
@@ -38,20 +38,33 @@ class BaseWorker:
         logger.info(f"Worker spawned (pid: {Colors.BOLD}{os.getpid()}{Colors.ENDC})")
 
     def handle_quit(self, sig, frame):
+        """Graceful shutdown."""
         self.alive = False
 
     def handle_exit(self, sig, frame):
+        """Quick shutdown."""
         self.alive = False
-        os._exit(0)
+        # For Sync/GThread, we might want to exit immediately
+        # but for others, let the loop finish or use os._exit
+        if self.__class__.__name__ in ['SyncWorker', 'GThreadWorker']:
+            os._exit(0)
 
     def run(self):
         raise NotImplementedError()
 
-    def handle_request(self, client_sock):
+    def handle_request(self, client_sock, listener_sock=None):
         """Common logic to determine protocol and dispatch."""
         try:
-            client_sock.settimeout(5.0)
-            data = client_sock.recv(4096)
+            client_sock.settimeout(self.timeout)
+            data = b""
+            while b"\r\n\r\n" not in data:
+                chunk = client_sock.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+                if len(data) > 32768: # Safety limit for headers
+                    break
+
             if not data:
                 return
 
@@ -59,7 +72,6 @@ class BaseWorker:
             if b"GET /asteri-status" in data:
                 cpu_usage = psutil.cpu_percent()
                 mem = psutil.virtual_memory()
-                boot_time = datetime.fromtimestamp(psutil.boot_time()).strftime("%Y-%m-%d %H:%M:%S")
                 
                 status_html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -86,7 +98,7 @@ class BaseWorker:
             align-items: center;
             min-height: 100vh;
             background-image: radial-gradient(circle at top right, #1e1b4b, transparent),
-                              radial-gradient(circle at bottom left, #1e1b4b, transparent);
+                               radial-gradient(circle at bottom left, #1e1b4b, transparent);
         }}
         .container {{
             width: 90%;
@@ -150,7 +162,7 @@ class BaseWorker:
         </div>
         
         <div class="footer">
-            Asteri Web Server v1.1.1 &bull; {datetime.now().strftime("%H:%M:%S")}
+            Asteri Web Server v1.2.1 &bull; {datetime.now().strftime("%H:%M:%S")}
         </div>
     </div>
 </body>
@@ -160,19 +172,27 @@ class BaseWorker:
                 return
 
             if HTTP2Handler.is_http2(data):
-                h2_handler = HTTP2Handler(client_sock)
-                # We need to pass the initial data if it contains more than preface
-                # But for now, handle() will recv more data
+                h2_handler = HTTP2Handler(client_sock, initial_data=data)
                 h2_handler.handle()
                 return
             elif UWSGIHandler.is_uwsgi(data):
+                # Handle large uWSGI packets (up to 64KB)
+                import struct
+                _, size, _ = struct.unpack("<BHB", data[:4])
+                remaining = (size + 4) - len(data)
+                while remaining > 0:
+                    chunk = client_sock.recv(min(remaining, 8192))
+                    if not chunk: break
+                    data += chunk
+                    remaining -= len(chunk)
+                
                 vars, mod = UWSGIHandler.parse(data)
                 if vars:
-                    self.handle_uwsgi(client_sock, vars)
+                    self.handle_uwsgi(client_sock, vars, listener_sock)
             else:
                 req = HTTPParser.parse(data)
                 if req:
-                    self.handle_http(client_sock, req)
+                    self.handle_http(client_sock, req, listener_sock)
         except socket.timeout:
             # Idle connection, just close it silently
             pass

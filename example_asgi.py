@@ -65,7 +65,7 @@ async def app(scope, receive, send):
         <h1>🌟 Hello from Asteri</h1>
         <p>This ASGI application is running on the high-performance Asteri web server.</p>
         <p style="margin-top: 2rem; font-size: 0.8rem; opacity: 0.5;">
-            v1.1.1 &bull; Powered by Asteri
+            v1.2.1 &bull; Powered by Asteri
         </p>
     </div>
 </body>

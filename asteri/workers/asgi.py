@@ -8,11 +8,11 @@ import traceback
 from datetime import datetime
 from .base import BaseWorker
 from ..http import build_http_response, HTTPParser
-from ..utils import logger, Colors
+from ..utils import logger, access_logger, Colors
 
 class ASGIWorker(BaseWorker):
     def run(self):
-        self.init_process()
+        # self.init_process() # Already called by Arbiter
         asyncio.run(self.main_loop())
 
     async def main_loop(self):
@@ -28,7 +28,7 @@ class ASGIWorker(BaseWorker):
         while self.alive:
             try:
                 client, addr = await loop.sock_accept(sock)
-                asyncio.create_task(self.handle_asgi_request(client))
+                asyncio.create_task(self.handle_asgi_request(client, listener_sock=sock))
             except Exception:
                 await asyncio.sleep(0.1)
 
@@ -115,7 +115,7 @@ class ASGIWorker(BaseWorker):
             </div>
         </div>
         <div class="footer">
-            Asteri Web Server v1.1.1 &bull; {datetime.now().strftime("%H:%M:%S")}
+            Asteri Web Server v1.2.1 &bull; {datetime.now().strftime("%H:%M:%S")}
         </div>
     </div>
 </body>
@@ -124,11 +124,11 @@ class ASGIWorker(BaseWorker):
                 sock, 
                 build_http_response(200, {"Content-Type": "text/html"}, status_html)
             )
-            logger.info(f"GET /asteri-status - {Colors.GREEN}200{Colors.ENDC}")
+            access_logger.info(f"GET /asteri-status - {Colors.GREEN}200{Colors.ENDC}")
         except Exception:
             pass
 
-    async def handle_asgi_request(self, sock):
+    async def handle_asgi_request(self, sock, listener_sock=None):
         try:
             data = await asyncio.get_running_loop().sock_recv(sock, 4096)
             if not data: return
@@ -141,14 +141,28 @@ class ASGIWorker(BaseWorker):
             req = HTTPParser.parse(data)
             if not req: return
 
-            scope = self.build_asgi_scope(req)
+            scope = self.build_asgi_scope(req, sock, listener_sock)
             
             response_started = False
             response_body = b""
             status_code = 200
             headers = []
 
+            # Handle body streaming
+            content_length = int(req.headers.get('content-length', 0))
+            body_already_read = len(req.body) if req.body else 0
+            
             async def receive():
+                nonlocal body_already_read
+                if body_already_read < content_length:
+                    # Need to read more body from socket
+                    more_data = await asyncio.get_running_loop().sock_recv(sock, 8192)
+                    body_already_read += len(more_data)
+                    return {
+                        'type': 'http.request',
+                        'body': more_data,
+                        'more_body': body_already_read < content_length
+                    }
                 return {'type': 'http.request', 'body': req.body or b"", 'more_body': False}
 
             async def send(message):
@@ -166,7 +180,7 @@ class ASGIWorker(BaseWorker):
                         )
                         # Access Log
                         status_color = Colors.GREEN if status_code < 400 else Colors.YELLOW if status_code < 500 else Colors.RED
-                        logger.info(f"{req.method} {req.path} - {status_color}{status_code}{Colors.ENDC}")
+                        access_logger.info(f"{req.method} {req.path} - {status_color}{status_code}{Colors.ENDC}")
 
             await self.app(scope, receive, send)
         except Exception as e:
@@ -175,16 +189,25 @@ class ASGIWorker(BaseWorker):
         finally:
             sock.close()
 
-    def build_asgi_scope(self, req):
+    def build_asgi_scope(self, req, sock, listener_sock=None):
+        try:
+            # Prefer listener_sock for server address, but fallback to client_sock's local address
+            server_sock = listener_sock or sock
+            server_addr = server_sock.getsockname()
+            client_addr = sock.getpeername()
+        except:
+            server_addr = ('127.0.0.1', 8000)
+            client_addr = ('127.0.0.1', 0)
+
         return {
             'type': 'http',
             'asgi': {'version': '3.0', 'spec_version': '2.0'},
             'http_version': '1.1',
             'method': req.method,
-            'scheme': 'http',
+            'scheme': 'http', # TODO: Detect https
             'path': req.path.split('?')[0],
             'query_string': req.path.split('?')[1].encode('ascii') if '?' in req.path else b'',
             'headers': [(k.encode('ascii'), v.encode('ascii')) for k, v in req.headers.items()],
-            'client': ('127.0.0.1', 0),
-            'server': ('127.0.0.1', 8000),
+            'client': client_addr,
+            'server': server_addr,
         }

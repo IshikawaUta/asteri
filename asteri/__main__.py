@@ -11,7 +11,7 @@ try:
     from asteri.workers.gevent import GeventWorker
 except ImportError:
     GeventWorker = None
-from asteri.utils import logger, print_banner, Colors, setup_logging
+from asteri.utils import logger, print_banner, Colors, setup_logging, setup_access_logging
 
 def import_app(app_path):
     """Import application from string 'module:callable'."""
@@ -40,7 +40,7 @@ def main():
     # Config Group
     config_group = parser.add_argument_group("Config")
     config_group.add_argument("-c", "--config", help="The Asteri config file.")
-    config_group.add_argument("-v", "--version", action="version", version="Asteri v1.1.1")
+    config_group.add_argument("-v", "--version", action="version", version="Asteri v1.2.1")
     config_group.add_argument("--check-config", action="store_true", help="Check the configuration and exit.")
     config_group.add_argument("--print-config", action="store_true", help="Print the configuration settings.")
 
@@ -144,7 +144,8 @@ def main():
     log_file = args.error_logfile
     log_level_name = (args.log_level or "info").upper()
     log_level = getattr(logging, log_level_name, logging.INFO)
-    setup_logging(log_file=log_file, level=log_level)
+    setup_logging(log_file=log_file, level=log_level, capture_output=args.capture_output)
+    setup_access_logging(log_file=args.access_logfile, log_format=args.access_logformat)
     
     worker_map = {
         "sync": SyncWorker,
@@ -185,7 +186,11 @@ def main():
         group=args.group,
         umask=args.umask,
         proc_name=args.name,
-        timeout=args.timeout
+        timeout=args.timeout,
+        backlog=args.backlog,
+        reuse_port=args.reuse_port,
+        threads=args.threads,
+        worker_connections=args.worker_connections
     )
     
     logger.info(f"Booting {Colors.CYAN}{args.worker_class}{Colors.ENDC} workers...")

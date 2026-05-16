@@ -41,6 +41,7 @@ def main():
     servers = [
         # WSGI Servers
         {"name": "Asteri (Sync)", "type": "WSGI", "cmd": ["python3", "-m", "asteri", "-w", "4", "-b", "127.0.0.1:8080", WSGI_APP]},
+        {"name": "Asteri (GThread)", "type": "WSGI", "cmd": ["python3", "-m", "asteri", "-w", "4", "-k", "gthread", "--threads", "4", "-b", "127.0.0.1:8080", WSGI_APP]},
         {"name": "Asteri (Gevent)", "type": "WSGI", "cmd": ["python3", "-m", "asteri", "-w", "4", "-k", "gevent", "-b", "127.0.0.1:8080", WSGI_APP]},
         {"name": "Gunicorn (Sync)", "type": "WSGI", "cmd": ["gunicorn", "-w", "4", "-b", "127.0.0.1:8080", WSGI_APP]},
         

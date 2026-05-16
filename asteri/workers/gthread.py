@@ -7,12 +7,12 @@ from concurrent.futures import ThreadPoolExecutor
 from .sync import SyncWorker
 
 class GThreadWorker(SyncWorker):
-    def __init__(self, age, ppid, sockets, app, timeout, threads=4):
-        super().__init__(age, ppid, sockets, app, timeout)
+    def __init__(self, age, ppid, sockets, app, timeout, threads=4, **kwargs):
+        super().__init__(age, ppid, sockets, app, timeout, **kwargs)
         self.threads = threads
 
     def run(self):
-        self.init_process()
+        # self.init_process() # Already called by Arbiter
         
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
             while self.alive:
@@ -22,7 +22,7 @@ class GThreadWorker(SyncWorker):
                     
                     for sock in readable:
                         client, addr = sock.accept()
-                        executor.submit(self.handle_request, client)
+                        executor.submit(self.handle_request, client, listener_sock=sock)
                     
                     # Check master
                     if os.getppid() != self.ppid:

@@ -1,7 +1,7 @@
 import socket
 import io
 import http.client
-from .utils import logger
+from .utils import logger, access_logger
 
 class HTTPRequest:
     def __init__(self, method, path, version, headers, body=None):
@@ -60,8 +60,9 @@ class HTTP2Handler:
     def is_http2(data):
         return data.startswith(HTTP2Handler.PREFACE)
 
-    def __init__(self, sock):
+    def __init__(self, sock, initial_data=None):
         self.sock = sock
+        self.initial_data = initial_data
         self.conn = h2.connection.H2Connection()
         self.conn.initiate_connection()
         self.sock.sendall(self.conn.data_to_send())
@@ -72,22 +73,28 @@ class HTTP2Handler:
             logger.error("HTTP/2 requested but 'h2' library is missing.")
             return
 
+        # Process initial data if provided
+        if self.initial_data:
+            self.process_data(self.initial_data)
+
         while True:
             try:
                 data = self.sock.recv(65535)
                 if not data: break
-                
-                events = self.conn.receive_data(data)
-                for event in events:
-                    if isinstance(event, h2.events.RequestReceived):
-                        self.handle_request(event)
-                
-                data_to_send = self.conn.data_to_send()
-                if data_to_send:
-                    self.sock.sendall(data_to_send)
+                self.process_data(data)
             except Exception as e:
                 logger.debug(f"H2 Connection closed: {e}")
                 break
+
+    def process_data(self, data):
+        events = self.conn.receive_data(data)
+        for event in events:
+            if isinstance(event, h2.events.RequestReceived):
+                self.handle_request(event)
+        
+        data_to_send = self.conn.data_to_send()
+        if data_to_send:
+            self.sock.sendall(data_to_send)
 
     def handle_request(self, event):
         # Convert H2 headers to dict
@@ -96,7 +103,7 @@ class HTTP2Handler:
         path = headers.get(':path')
         
         # This would then call the app... for now just logging
-        logger.info(f"H2 Request: {method} {path}")
+        access_logger.info(f"H2 Request: {method} {path}")
         
         # Simple H2 Response
         response_headers = [
@@ -125,4 +132,4 @@ def build_http_response(status_code, headers, body):
         response += f"{key}: {value}\r\n"
     
     response += "\r\n"
-    return response.encode('ascii') + body
+    return response.encode('latin-1') + body
