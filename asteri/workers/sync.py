@@ -48,10 +48,17 @@ class SyncWorker(BaseWorker):
         self.execute_wsgi(sock, env)
 
     def build_wsgi_environ(self, req, listener_sock, sock):
+        proxy_client = getattr(self, "_current_proxy_client", None)
+        proxy_server = getattr(self, "_current_proxy_server", None)
         try:
-            server_addr = listener_sock.getsockname()
+            server_addr = proxy_server or listener_sock.getsockname()
         except:
             server_addr = ('127.0.0.1', 8000)
+            
+        try:
+            client_addr = proxy_client or sock.getpeername()
+        except:
+            client_addr = ('127.0.0.1', 0)
 
         # Body handling (support streaming for large bodies)
         content_length = int(req.headers.get('content-length', 0))
@@ -95,6 +102,16 @@ class SyncWorker(BaseWorker):
             def readline(self, size=-1):
                 return self.buffer.readline(size) # Simplified
 
+        def send_early_hints(headers):
+            try:
+                hint_resp = ["HTTP/1.1 103 Early Hints"]
+                for k, v in headers:
+                    hint_resp.append(f"{k}: {v}")
+                hint_resp.append("\r\n")
+                sock.sendall(("\r\n".join(hint_resp)).encode('utf-8'))
+            except OSError:
+                pass
+
         env = {
             'REQUEST_METHOD': req.method,
             'SCRIPT_NAME': '',
@@ -110,6 +127,9 @@ class SyncWorker(BaseWorker):
             'wsgi.multithread': False,
             'wsgi.multiprocess': True,
             'wsgi.run_once': False,
+            'wsgi.early_hints': send_early_hints,
+            'REMOTE_ADDR': client_addr[0],
+            'REMOTE_PORT': str(client_addr[1]),
         }
         for k, v in req.headers.items():
             env[f"HTTP_{k.upper().replace('-', '_')}"] = v

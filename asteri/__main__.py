@@ -11,6 +11,10 @@ try:
     from asteri.workers.gevent import GeventWorker
 except ImportError:
     GeventWorker = None
+try:
+    from asteri.workers.tornado import TornadoWorker
+except ImportError:
+    TornadoWorker = None
 from asteri.utils import logger, print_banner, Colors, setup_logging, setup_access_logging
 
 def import_app(app_path):
@@ -40,7 +44,7 @@ def main():
     # Config Group
     config_group = parser.add_argument_group("Config")
     config_group.add_argument("-c", "--config", help="The Asteri config file.")
-    config_group.add_argument("-v", "--version", action="version", version="Asteri v1.2.1")
+    config_group.add_argument("-v", "--version", action="version", version="Asteri v1.2.2")
     config_group.add_argument("--check-config", action="store_true", help="Check the configuration and exit.")
     config_group.add_argument("--print-config", action="store_true", help="Print the configuration settings.")
 
@@ -53,7 +57,7 @@ def main():
     # Worker Group
     worker_group = parser.add_argument_group("Workers")
     worker_group.add_argument("-w", "--workers", type=int, default=1, help="The number of worker processes.")
-    worker_group.add_argument("-k", "--worker-class", default="sync", choices=["sync", "gthread", "asgi", "gevent"],
+    worker_group.add_argument("-k", "--worker-class", default="sync", choices=["sync", "gthread", "asgi", "gevent", "tornado", "gtornado"],
                              help="The type of workers to use.")
     worker_group.add_argument("--threads", type=int, default=1, help="The number of worker threads.")
     worker_group.add_argument("--worker-connections", type=int, default=1000, help="Max simultaneous clients.")
@@ -91,6 +95,13 @@ def main():
     proc_group.add_argument("-e", "--env", action="append", help="Set environment variables.")
     proc_group.add_argument("-n", "--name", help="Process name for setproctitle.")
     proc_group.add_argument("--reload", action="store_true", help="Restart workers on code changes.")
+    proc_group.add_argument("--disable-dashboard", action="store_true", help="Disable the /asteri-status dashboard.")
+    proc_group.add_argument("--control-socket", help="Path to Unix domain socket for administration.")
+    proc_group.add_argument("--dirty-apps", help="Config string for routing dirty apps.")
+    proc_group.add_argument("--stash-address", help="Unix socket or host:port for StashServer.")
+    proc_group.add_argument("--statsd-host", help="StatsD host to emit metrics.")
+    proc_group.add_argument("--statsd-port", type=int, default=8125, help="StatsD port.")
+    proc_group.add_argument("--statsd-prefix", default="asteri", help="StatsD prefix.")
 
     # HTTP limits
     http_group = parser.add_argument_group("HTTP Limits")
@@ -110,9 +121,62 @@ def main():
         config_namespace = {}
         with open(args.config) as f:
             exec(f.read(), config_namespace)
+        
+        # Mapping to check if argument was explicitly passed on CLI
+        cli_options = {
+            "workers": ["-w", "--workers"],
+            "worker_class": ["-k", "--worker-class"],
+            "threads": ["--threads"],
+            "worker_connections": ["--worker-connections"],
+            "max_requests": ["--max-requests"],
+            "max_requests_jitter": ["--max-requests-jitter"],
+            "timeout": ["-t", "--timeout"],
+            "graceful_timeout": ["--graceful-timeout"],
+            "keep_alive": ["--keep-alive"],
+            "preload": ["--preload"],
+            "keyfile": ["--keyfile"],
+            "certfile": ["--certfile"],
+            "ca_certs": ["--ca-certs"],
+            "ssl_version": ["--ssl-version"],
+            "ciphers": ["--ciphers"],
+            "user": ["-u", "--user"],
+            "group": ["-g", "--group"],
+            "umask": ["-m", "--umask"],
+            "access_logfile": ["--access-logfile"],
+            "error_logfile": ["--error-logfile", "--log-file"],
+            "log_level": ["--log-level"],
+            "capture_output": ["--capture-output"],
+            "access_logformat": ["--access-logformat"],
+            "daemon": ["-D", "--daemon"],
+            "pid": ["-p", "--pid"],
+            "chdir": ["--chdir"],
+            "env": ["-e", "--env"],
+            "name": ["-n", "--name"],
+            "reload": ["--reload"],
+            "disable_dashboard": ["--disable-dashboard"],
+            "limit_request_line": ["--limit-request-line"],
+            "limit_request_fields": ["--limit-request-fields"],
+            "limit_request_field_size": ["--limit-request-field_size"],
+            "http_protocols": ["--http-protocols"],
+            "http2_max_concurrent_streams": ["--http2-max-concurrent-streams"],
+            "backlog": ["--backlog"],
+            "reuse_port": ["--reuse-port"],
+            "bind": ["-b", "--bind"],
+            "control_socket": ["--control-socket"],
+            "dirty_apps": ["--dirty-apps"],
+            "stash_address": ["--stash-address"],
+            "statsd_host": ["--statsd-host"],
+            "statsd_port": ["--statsd-port"],
+            "statsd_prefix": ["--statsd-prefix"]
+        }
+        
         for key, value in config_namespace.items():
-            if hasattr(args, key.lower()):
-                setattr(args, key.lower(), value)
+            k_lower = key.lower()
+            if hasattr(args, k_lower):
+                flags = cli_options.get(k_lower, [])
+                passed_on_cli = any(flag in sys.argv for flag in flags)
+                if not passed_on_cli:
+                    setattr(args, k_lower, value)
 
     # Ensure bind is always a list
     if args.bind and isinstance(args.bind, str):
@@ -151,7 +215,9 @@ def main():
         "sync": SyncWorker,
         "gthread": GThreadWorker,
         "asgi": ASGIWorker,
-        "gevent": GeventWorker
+        "gevent": GeventWorker,
+        "tornado": TornadoWorker,
+        "gtornado": TornadoWorker
     }
     
     worker_class = worker_map[args.worker_class]
@@ -190,7 +256,14 @@ def main():
         backlog=args.backlog,
         reuse_port=args.reuse_port,
         threads=args.threads,
-        worker_connections=args.worker_connections
+        worker_connections=args.worker_connections,
+        disable_dashboard=args.disable_dashboard,
+        control_socket=args.control_socket,
+        dirty_apps=args.dirty_apps,
+        stash_address=args.stash_address,
+        statsd_host=args.statsd_host,
+        statsd_port=args.statsd_port,
+        statsd_prefix=args.statsd_prefix
     )
     
     logger.info(f"Booting {Colors.CYAN}{args.worker_class}{Colors.ENDC} workers...")

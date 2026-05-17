@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# ASTERI FULL REGRESSION TEST SCRIPT (V5 - EXPLICIT MODE)
+# ASTERI FULL REGRESSION TEST SCRIPT (V6 - LOCAL DEVELOPMENT MODE)
 # ==============================================================================
 
 # Basic Configuration
@@ -9,6 +9,7 @@ APP="test_app:app"
 TEST_LOG="test_results.log"
 TIMEOUT=5
 USER_NAME=$(whoami)
+ASTERI="python3 -m asteri"
 
 # Output Colors
 GREEN='\033[0;32m'
@@ -35,7 +36,7 @@ setup_dummy_files() {
 
 cleanup_dummy_files() {
     echo -e "${BLUE}Cleaning up test files...${NC}"
-    rm -f test_asteri_conf.py test_key.pem test_cert.pem cli_test.pid cli_access.log cli_error.log cli_capture.log last_error.log test_app.py
+    rm -f test_asteri_conf.py test_key.pem test_cert.pem cli_test.pid cli_access.log cli_error.log cli_capture.log last_error.log test_app.py cli_test_ctrl.sock
 }
 
 run_test() {
@@ -99,48 +100,57 @@ run_test() {
 setup_dummy_files
 
 echo -e "\n${YELLOW}[GROUP: CONFIG]${NC}"
-run_test "Version" "asteri -v" "immediate"
-run_test "Help" "asteri --help" "immediate"
-run_test "Check Config" "asteri --check-config -c test_asteri_conf.py $APP" "immediate"
-run_test "Print Config" "asteri --print-config -c test_asteri_conf.py $APP" "immediate"
-run_test "Custom Config" "asteri -c test_asteri_conf.py -b 127.0.0.1:19281 $APP" "long"
+run_test "Version" "$ASTERI -v" "immediate"
+run_test "Help" "$ASTERI --help" "immediate"
+run_test "Check Config" "$ASTERI --check-config -c test_asteri_conf.py $APP" "immediate"
+run_test "Print Config" "$ASTERI --print-config -c test_asteri_conf.py $APP" "immediate"
+run_test "Custom Config" "$ASTERI -c test_asteri_conf.py -b 127.0.0.1:19281 $APP" "long"
 
 echo -e "\n${YELLOW}[GROUP: NETWORK]${NC}"
-run_test "Bind" "asteri -b 127.0.0.1:19282 $APP" "long"
-run_test "Backlog" "asteri --backlog 512 -b 127.0.0.1:19283 $APP" "long"
-run_test "Reuse Port" "asteri --reuse-port -b 127.0.0.1:19284 $APP" "long"
+run_test "Bind" "$ASTERI -b 127.0.0.1:19282 $APP" "long"
+run_test "Backlog" "$ASTERI --backlog 512 -b 127.0.0.1:19283 $APP" "long"
+run_test "Reuse Port" "$ASTERI --reuse-port -b 127.0.0.1:19284 $APP" "long"
 
 echo -e "\n${YELLOW}[GROUP: WORKERS]${NC}"
-run_test "Sync" "asteri -k sync -w 1 -b 127.0.0.1:19285 $APP" "long"
-run_test "GThread" "asteri -k gthread --threads 2 -b 127.0.0.1:19286 $APP" "long"
-run_test "ASGI" "asteri -k asgi -b 127.0.0.1:19287 $APP" "long"
-run_test "Gevent" "asteri -k gevent -w 1 -b 127.0.0.1:19306 $APP" "long"
-run_test "Connections" "asteri --worker-connections 100 -b 127.0.0.1:19288 $APP" "long"
-run_test "Max Requests" "asteri --max-requests 50 -b 127.0.0.1:19289 $APP" "long"
-run_test "Timeouts" "asteri -t 30 --graceful-timeout 5 -b 127.0.0.1:19290 $APP" "long"
-run_test "Preload" "asteri --preload -b 127.0.0.1:19291 $APP" "long"
+run_test "Sync" "$ASTERI -k sync -w 1 -b 127.0.0.1:19285 $APP" "long"
+run_test "GThread" "$ASTERI -k gthread --threads 2 -b 127.0.0.1:19286 $APP" "long"
+run_test "ASGI" "$ASTERI -k asgi -b 127.0.0.1:19287 $APP" "long"
+run_test "Gevent" "$ASTERI -k gevent -w 1 -b 127.0.0.1:19306 $APP" "long"
+run_test "Connections" "$ASTERI --worker-connections 100 -b 127.0.0.1:19288 $APP" "long"
+run_test "Max Requests" "$ASTERI --max-requests 50 --max-requests-jitter 5 -b 127.0.0.1:19289 $APP" "long"
+run_test "Timeouts" "$ASTERI -t 30 --graceful-timeout 5 --keep-alive 3 -b 127.0.0.1:19290 $APP" "long"
+run_test "Preload" "$ASTERI --preload -b 127.0.0.1:19291 $APP" "long"
 
 echo -e "\n${YELLOW}[GROUP: SECURITY]${NC}"
-run_test "SSL" "asteri --keyfile test_key.pem --certfile test_cert.pem -b 127.0.0.1:19292 $APP" "long"
-run_test "User/Group" "asteri -u $USER_NAME -b 127.0.0.1:19293 $APP" "long"
-run_test "Umask" "asteri -m 0022 -b 127.0.0.1:19294 $APP" "long"
+run_test "SSL & Ciphers" "$ASTERI --keyfile test_key.pem --certfile test_cert.pem --ssl-version 2 --ciphers HIGH -b 127.0.0.1:19292 $APP" "long"
+run_test "User/Group" "$ASTERI -u $USER_NAME -b 127.0.0.1:19293 $APP" "long"
+run_test "Umask" "$ASTERI -m 0022 -b 127.0.0.1:19294 $APP" "long"
 
 echo -e "\n${YELLOW}[GROUP: LOGGING]${NC}"
-run_test "Log Files" "asteri --access-logfile cli_access.log --error-logfile cli_error.log -b 127.0.0.1:19295 $APP" "long"
-run_test "Log Level" "asteri --log-level debug -b 127.0.0.1:19296 $APP" "long"
-run_test "Capture Output" "asteri --capture-output --error-logfile cli_capture.log -b 127.0.0.1:19297 $APP" "long"
-run_test "Access Format" "asteri --access-logformat '[%(asctime)s] %(message)s' -b 127.0.0.1:19298 $APP" "long"
+run_test "Log Files" "$ASTERI --access-logfile cli_access.log --error-logfile cli_error.log -b 127.0.0.1:19295 $APP" "long"
+run_test "Log Level" "$ASTERI --log-level debug -b 127.0.0.1:19296 $APP" "long"
+run_test "Capture Output" "$ASTERI --capture-output --error-logfile cli_capture.log -b 127.0.0.1:19297 $APP" "long"
+run_test "Access Format" "$ASTERI --access-logformat '[%(asctime)s] %(message)s' -b 127.0.0.1:19298 $APP" "long"
 
 echo -e "\n${YELLOW}[GROUP: PROCESS]${NC}"
-run_test "Daemon Mode" "asteri -D -p cli_test.pid -b 127.0.0.1:19299 $APP" "daemon"
-run_test "PID File" "asteri -p cli_test.pid -b 127.0.0.1:19300 $APP" "long"
-run_test "Chdir" "asteri --chdir . -b 127.0.0.1:19301 $APP" "long"
-run_test "Env & Name" "asteri -e FOO=BAR -n asteri_test -b 127.0.0.1:19302 $APP" "long"
-run_test "Reload" "asteri --reload -b 127.0.0.1:19303 $APP" "long"
+run_test "Daemon Mode" "$ASTERI -D -p cli_test.pid -b 127.0.0.1:19299 $APP" "daemon"
+run_test "PID File" "$ASTERI -p cli_test.pid -b 127.0.0.1:19300 $APP" "long"
+run_test "Chdir" "$ASTERI --chdir . -b 127.0.0.1:19301 $APP" "long"
+run_test "Env & Name" "$ASTERI -e FOO=BAR -n asteri_test -b 127.0.0.1:19302 $APP" "long"
+run_test "Reload" "$ASTERI --reload -b 127.0.0.1:19303 $APP" "long"
+run_test "Disable Dashboard" "$ASTERI --disable-dashboard -b 127.0.0.1:19313 $APP" "long"
 
 echo -e "\n${YELLOW}[GROUP: LIMITS & H2]${NC}"
-run_test "Limits" "asteri --limit-request-line 1024 --limit-request-fields 20 -b 127.0.0.1:19304 $APP" "long"
-run_test "HTTP/2" "asteri --http-protocols h1,h2 --keyfile test_key.pem --certfile test_cert.pem -b 127.0.0.1:19305 $APP" "long"
+run_test "Limits" "$ASTERI --limit-request-line 1024 --limit-request-fields 20 --limit-request-field_size 4096 -b 127.0.0.1:19304 $APP" "long"
+run_test "HTTP/2" "$ASTERI --http-protocols h1,h2 --http2-max-concurrent-streams 50 --keyfile test_key.pem --certfile test_cert.pem -b 127.0.0.1:19305 $APP" "long"
+
+echo -e "\n${YELLOW}[GROUP: ADVANCED FEATURES]${NC}"
+run_test "Tornado Worker" "$ASTERI -k tornado -w 1 -b 127.0.0.1:19307 $APP" "long"
+run_test "GTornado Worker" "$ASTERI -k gtornado -w 1 -b 127.0.0.1:19308 $APP" "long"
+run_test "Control Socket" "$ASTERI --control-socket cli_test_ctrl.sock -b 127.0.0.1:19309 $APP" "long"
+run_test "Dirty Apps" "$ASTERI --dirty-apps 'host1:app1' -b 127.0.0.1:19310 $APP" "long"
+run_test "Stash Address" "$ASTERI --stash-address '127.0.0.1:9999' -b 127.0.0.1:19311 $APP" "long"
+run_test "StatsD Metrics" "$ASTERI --statsd-host 127.0.0.1 --statsd-port 8125 --statsd-prefix my_asteri -b 127.0.0.1:19312 $APP" "long"
 
 echo -e "\n${BLUE}=================================================${NC}"
 if [ $(wc -l < $TEST_LOG) -gt 3 ]; then

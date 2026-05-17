@@ -34,92 +34,8 @@ class ASGIWorker(BaseWorker):
 
     async def handle_asgi_status(self, sock):
         try:
-            mem = psutil.virtual_memory()
-            cpu_usage = psutil.cpu_percent()
-            boot_time = datetime.fromtimestamp(psutil.boot_time()).strftime("%Y-%m-%d %H:%M:%S")
-
-            status_html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Asteri Status</title>
-    <style>
-        :root {{
-            --bg: #0f172a;
-            --card: rgba(30, 41, 59, 0.7);
-            --primary: #6366f1;
-            --accent: #a855f7;
-            --text: #f8fafc;
-            --text-dim: #94a3b8;
-            --success: #22c55e;
-        }}
-        body {{
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            margin: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-        }}
-        .container {{ width: 90%; max-width: 800px; background: var(--card); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); border-radius: 24px; padding: 2rem; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }}
-        .header {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 2rem;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-            padding-bottom: 1rem;
-        }}
-        h1 {{ margin: 0; font-size: 1.8rem; background: linear-gradient(to right, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
-        .badge {{ background: var(--success); color: white; padding: 0.2rem 0.8rem; border-radius: 99px; font-size: 0.8rem; font-weight: bold; }}
-        .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; }}
-        .stat-card {{ background: rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 16px; border: 1px solid rgba(255,255,255,0.05); transition: transform 0.3s; }}
-        .stat-card:hover {{ transform: translateY(-5px); background: rgba(255,255,255,0.08); }}
-        .stat-label {{ color: var(--text-dim); font-size: 0.9rem; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 1px; }}
-        .stat-value {{ font-size: 1.5rem; font-weight: bold; color: var(--text); }}
-        .footer {{ margin-top: 2rem; text-align: center; color: var(--text-dim); font-size: 0.8rem; opacity: 0.6; }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🌟 Asteri Dashboard</h1>
-            <span class="badge">RUNNING</span>
-        </div>
-        <div class="grid">
-            <div class="stat-card">
-                <div class="stat-label">Worker PID</div>
-                <div class="stat-value">{os.getpid()}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Parent PID</div>
-                <div class="stat-value">{self.ppid}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Worker Type</div>
-                <div class="stat-value">{self.__class__.__name__}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">CPU Usage</div>
-                <div class="stat-value">{cpu_usage}%</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Memory Usage</div>
-                <div class="stat-value">{mem.percent}%</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Operating System</div>
-                <div class="stat-value">{platform.system()}</div>
-            </div>
-        </div>
-        <div class="footer">
-            Asteri Web Server v1.2.1 &bull; {datetime.now().strftime("%H:%M:%S")}
-        </div>
-    </div>
-</body>
-</html>"""
+            from ..utils import build_status_html
+            status_html = build_status_html(self.__class__.__name__, os.getpid(), self.ppid)
             await asyncio.get_running_loop().sock_sendall(
                 sock, 
                 build_http_response(200, {"Content-Type": "text/html"}, status_html)
@@ -132,16 +48,30 @@ class ASGIWorker(BaseWorker):
         try:
             data = await asyncio.get_running_loop().sock_recv(sock, 4096)
             if not data: return
+            
+            from asteri.utils import parse_proxy_protocol
+            proxy_client, proxy_server, remaining = parse_proxy_protocol(data)
+            data = remaining
+            if not data:
+                data = await asyncio.get_running_loop().sock_recv(sock, 4096)
+                if not data: return
 
             # Internal Status Dashboard
-            if b"GET /asteri-status" in data:
+            if not self.disable_dashboard and b"GET /asteri-status" in data:
                 await self.handle_asgi_status(sock)
                 return
 
             req = HTTPParser.parse(data)
             if not req: return
 
-            scope = self.build_asgi_scope(req, sock, listener_sock)
+            scope = self.build_asgi_scope(req, sock, listener_sock, proxy_client, proxy_server)
+            
+            is_websocket = (req.headers.get("upgrade", "").lower() == "websocket" and
+                            "upgrade" in req.headers.get("connection", "").lower())
+                            
+            if is_websocket:
+                await self.handle_asgi_websocket(sock, req, scope)
+                return
             
             response_started = False
             response_body = b""
@@ -167,7 +97,20 @@ class ASGIWorker(BaseWorker):
 
             async def send(message):
                 nonlocal response_started, response_body, status_code, headers
-                if message['type'] == 'http.response.start':
+                if message['type'] == 'http.response.early_hints':
+                    try:
+                        hint_headers = message.get('headers', [])
+                        hint_lines = ["HTTP/1.1 103 Early Hints"]
+                        for k, v in hint_headers:
+                            hint_lines.append(f"{k.decode('ascii')}: {v.decode('ascii')}")
+                        hint_lines.append("\r\n")
+                        await asyncio.get_running_loop().sock_sendall(
+                            sock,
+                            ("\r\n".join(hint_lines)).encode('utf-8')
+                        )
+                    except OSError:
+                        pass
+                elif message['type'] == 'http.response.start':
                     status_code = message['status']
                     headers = {k.decode('ascii'): v.decode('ascii') for k, v in message.get('headers', [])}
                     response_started = True
@@ -185,16 +128,102 @@ class ASGIWorker(BaseWorker):
             await self.app(scope, receive, send)
         except Exception as e:
             logger.error(f"ASGI Error: {e}")
+            import traceback
             logger.error(traceback.format_exc())
         finally:
-            sock.close()
+            try:
+                sock.close()
+            except OSError:
+                pass
 
-    def build_asgi_scope(self, req, sock, listener_sock=None):
+    async def handle_asgi_websocket(self, sock, req, scope):
+        scope['type'] = 'websocket'
+        scope['subprotocols'] = [sub.strip() for sub in req.headers.get('sec-websocket-protocol', '').split(',') if sub.strip()]
+        
+        loop = asyncio.get_running_loop()
+        
+        import hashlib
+        import base64
+        ws_key = req.headers.get("sec-websocket-key", "")
+        guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+        ws_accept = base64.b64encode(hashlib.sha1((ws_key + guid).encode('utf-8')).digest()).decode('utf-8')
+        
+        handshake_resp = (
+            "HTTP/1.1 101 Switching Protocols\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Accept: {ws_accept}\r\n\r\n"
+        ).encode('utf-8')
+        
+        events = asyncio.Queue()
+        await events.put({"type": "websocket.connect"})
+        
+        read_buffer = b""
+        async def socket_reader():
+            nonlocal read_buffer
+            from asteri.utils import parse_websocket_frame
+            try:
+                while True:
+                    chunk = await loop.sock_recv(sock, 4096)
+                    if not chunk:
+                        await events.put({"type": "websocket.disconnect", "code": 1006})
+                        break
+                    read_buffer += chunk
+                    
+                    while True:
+                        opcode, payload, remaining = parse_websocket_frame(read_buffer)
+                        if opcode is None:
+                            break
+                        read_buffer = remaining
+                        
+                        if opcode == 8:
+                            await events.put({"type": "websocket.disconnect", "code": 1000})
+                            return
+                        elif opcode == 9:
+                            from asteri.utils import make_websocket_frame
+                            await loop.sock_sendall(sock, make_websocket_frame(payload, opcode=10))
+                        elif opcode in (1, 2):
+                            event = {"type": "websocket.receive"}
+                            if opcode == 1:
+                                event["text"] = payload.decode('utf-8')
+                            else:
+                                event["bytes"] = payload
+                            await events.put(event)
+            except Exception:
+                await events.put({"type": "websocket.disconnect", "code": 1006})
+                
+        reader_task = asyncio.create_task(socket_reader())
+        
+        async def receive():
+            return await events.get()
+            
+        async def send(message):
+            from asteri.utils import make_websocket_frame
+            msg_type = message.get("type")
+            if msg_type == "websocket.accept":
+                await loop.sock_sendall(sock, handshake_resp)
+            elif msg_type == "websocket.send":
+                text = message.get("text")
+                binary = message.get("bytes")
+                if text is not None:
+                    await loop.sock_sendall(sock, make_websocket_frame(text, opcode=1))
+                elif binary is not None:
+                    await loop.sock_sendall(sock, make_websocket_frame(binary, opcode=2))
+            elif msg_type == "websocket.close":
+                close_code = message.get("code", 1000)
+                await loop.sock_sendall(sock, make_websocket_frame(close_code.to_bytes(2, byteorder='big'), opcode=8))
+                
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            reader_task.cancel()
+
+    def build_asgi_scope(self, req, sock, listener_sock=None, proxy_client=None, proxy_server=None):
         try:
             # Prefer listener_sock for server address, but fallback to client_sock's local address
             server_sock = listener_sock or sock
-            server_addr = server_sock.getsockname()
-            client_addr = sock.getpeername()
+            server_addr = proxy_server or server_sock.getsockname()
+            client_addr = proxy_client or sock.getpeername()
         except:
             server_addr = ('127.0.0.1', 8000)
             client_addr = ('127.0.0.1', 0)
