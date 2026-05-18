@@ -1,4 +1,4 @@
-# 🌟 Asteri Web Server v1.2.2
+# 🌟 Asteri Web Server v2.2.2
 
 **Asteri** is a state-of-the-art, high-performance, production-ready Python web server designed with a rich and intuitive CLI argument system. It natively supports various protocols ranging from WSGI and ASGI to binary uWSGI, async WebSockets, and premium event loops like Tornado.
 
@@ -7,7 +7,8 @@
 ## ✨ Key Features
 
 - **🚀 Multi-Protocol Engine**: 
-  - Full compatibility with HTTP/1.1, HTTP/2 (with full frame support), WSGI, ASGI, uWSGI, and **ASGI WebSocket (RFC 6455)**.
+  - Full compatibility with **HTTP/1.1**, **HTTP/2** (with full frame support), **HTTP/3 (QUIC)** **[NEW]**, WSGI, ASGI, uWSGI, and **ASGI WebSocket (RFC 6455)**.
+  - **⚡ C-Extension Core [NEW]**: Blazing fast HTTP and uWSGI parsing written purely in C for maximum throughput and zero-copy memory efficiency (with seamless Pure-Python fallback).
 - **🏗️ Diverse Worker Archetypes**:
   - `sync`: Standard robust synchronous workers.
   - `gthread`: Thread-based concurrency model.
@@ -23,9 +24,14 @@
   - **Dirty Apps Dynamic Routing**: Routes different WSGI/ASGI apps dynamically based on the HTTP Host header or URL path prefix.
   - **Stash Server**: A lightning-fast, atomic, thread-safe, cross-process binary key-value memory store for sharing state across workers.
 - **📊 Production Monitoring & Observability**:
+  - **Prometheus & OpenTelemetry [NEW]**: Native Prometheus `0.0.4` metric exposition endpoint (`/metrics`) built right in.
   - **StatsD Integration**: Non-blocking UDP metrics collection (request counters, worker births/deaths).
   - **Premium Status Dashboard**: Real-time cluster health, resource metrics (CPU/RAM), and worker telemetry rendered in a gorgeous glassmorphism UI at `/asteri-status`. Can be disabled using CLI flags.
   - **Colorized Access Logs**: Beautiful terminal logs with dynamic HSL colored HTTP response status codes.
+- **💎 Enterprise Quality & CI/CD [NEW]**:
+  - **100% Type-Safe**: Enforced static typing with `Mypy` for zero runtime type-errors.
+  - **Clean Architecture**: 100% PEP-8 compliant, strictly analyzed via `Ruff`.
+  - **Automated PyPI Publishing**: Secure OIDC Trusted Publishing workflows via GitHub Actions.
 
 ---
 
@@ -170,11 +176,11 @@ Asteri exposes a professional-grade set of configuration options via the command
 *   `--statsd-port INT`: Port of the target StatsD server (default: `8125`).
 *   `--statsd-prefix STRING`: Prefix name namespace for StatsD metrics (default: `asteri`).
 
-### 📐 HTTP Limits
+### 📐 HTTP Limits & Protocols
 *   `--limit-request-line INT`: Max allowed bytes in an HTTP request line (default: `4094`).
 *   `--limit-request-fields INT`: Max number of HTTP headers allowed in a request (default: `100`).
 *   `--limit-request-field_size INT`: Max size in bytes of a single HTTP header field (default: `8190`).
-*   `--http-protocols STRING`: HTTP protocol standard constraints (e.g. `h1` or `h1,h2`).
+*   `--http-protocols STRING`: HTTP protocol standard constraints (e.g. `h1,h2,h3`).
 *   `--http2-max-concurrent-streams INT`: Limit on concurrent streams for HTTP/2.
 
 ---

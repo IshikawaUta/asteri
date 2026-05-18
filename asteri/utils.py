@@ -6,16 +6,17 @@ import re
 
 
 class Colors:
-    PURPLE = '\033[95m'
-    BLUE = '\033[94m'
-    CYAN = '\033[96m'
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    RED = '\033[91m'
-    WHITE = '\033[97m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
+    PURPLE = "\033[95m"
+    BLUE = "\033[94m"
+    CYAN = "\033[96m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    RED = "\033[91m"
+    WHITE = "\033[97m"
+    ENDC = "\033[0m"
+    BOLD = "\033[1m"
+    UNDERLINE = "\033[4m"
+
 
 class PrettyFormatter(logging.Formatter):
     def format(self, record):
@@ -23,39 +24,40 @@ class PrettyFormatter(logging.Formatter):
             logging.INFO: Colors.GREEN,
             logging.WARNING: Colors.YELLOW,
             logging.ERROR: Colors.RED,
-            logging.DEBUG: Colors.BLUE
+            logging.DEBUG: Colors.BLUE,
         }.get(record.levelno, Colors.ENDC)
-        
+
         timestamp = self.formatTime(record, self.datefmt)
-        msg = super().format(record)
+        super().format(record)
         # We only want to color the level and maybe the process ID
         return f"{Colors.BLUE}[{timestamp}]{Colors.ENDC} {Colors.BOLD}[{record.process}]{Colors.ENDC} {level_color}[{record.levelname}]{Colors.ENDC} {record.getMessage()}"
+
 
 def setup_logging(level=logging.INFO, log_file=None, capture_output=False):
     """Set up the default logger for Asteri."""
     logger = logging.getLogger("asteri")
     logger.setLevel(level)
-    
+
     if logger.handlers:
         for handler in list(logger.handlers):
             logger.removeHandler(handler)
-            
+
     # Console handler
     handler = logging.StreamHandler(sys.stdout)
-    formatter = PrettyFormatter(datefmt='%H:%M:%S')
+    formatter = PrettyFormatter(datefmt="%H:%M:%S")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-    
+
     # File handler if requested
     if log_file:
         file_handler = logging.FileHandler(log_file)
         file_formatter = logging.Formatter(
-            '[%(asctime)s] [%(process)d] [%(levelname)s] %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S %z'
+            "[%(asctime)s] [%(process)d] [%(levelname)s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S %z",
         )
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
-        
+
         if capture_output:
             # Redirect stdout/stderr to the log file
             # We use a simple stream wrapper to avoid recursion
@@ -63,7 +65,7 @@ def setup_logging(level=logging.INFO, log_file=None, capture_output=False):
                 def __init__(self, logger_instance, log_level):
                     self.logger = logger_instance
                     self.log_level = log_level
-                    self.linebuf = ''
+                    self.linebuf = ""
 
                 def write(self, buf):
                     for line in buf.rstrip().splitlines():
@@ -74,29 +76,32 @@ def setup_logging(level=logging.INFO, log_file=None, capture_output=False):
 
             sys.stdout = StreamToLogger(logger, logging.INFO)
             sys.stderr = StreamToLogger(logger, logging.ERROR)
-    
+
     return logger
+
 
 class NoColorFormatter(logging.Formatter):
     """Formatter that strips ANSI color codes for file logging."""
-    ANSI_ESCAPE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-    
+
+    ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
     def format(self, record):
         message = super().format(record)
-        return self.ANSI_ESCAPE.sub('', message)
+        return self.ANSI_ESCAPE.sub("", message)
+
 
 def setup_access_logging(log_file=None, log_format=None):
     """Set up the access logger for Asteri."""
     logger = logging.getLogger("asteri.access")
     logger.setLevel(logging.INFO)
-    logger.propagate = False # Don't send to root logger
-    
+    logger.propagate = False  # Don't send to root logger
+
     if logger.handlers:
         for handler in list(logger.handlers):
             logger.removeHandler(handler)
-            
-    fmt_str = log_format or '%(message)s'
-    
+
+    fmt_str = log_format or "%(message)s"
+
     if log_file:
         file_handler = logging.FileHandler(log_file)
         file_handler.setFormatter(NoColorFormatter(fmt_str))
@@ -106,28 +111,33 @@ def setup_access_logging(log_file=None, log_format=None):
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(logging.Formatter(fmt_str))
         logger.addHandler(handler)
-    
+
     return logger
+
 
 logger = setup_logging()
 access_logger = logging.getLogger("asteri.access")
 
+
 def print_banner():
     banner = f"""
         {Colors.BOLD}{Colors.PURPLE}*ASTERI*{Colors.ENDC}
-         {Colors.CYAN}v1.2.2{Colors.ENDC}
+         {Colors.CYAN}v2.2.2{Colors.ENDC}
     {Colors.BOLD}{Colors.CYAN}ASTERI{Colors.ENDC} {Colors.YELLOW}Web Server{Colors.ENDC}
     """
     print(banner)
+
 
 def set_proctitle(title):
     """Attempt to set the process title for better visibility in ps/top."""
     try:
         import setproctitle
+
         setproctitle.setproctitle(f"asteri: {title}")
     except ImportError:
         # Fallback if setproctitle is not installed (dependency-free requirement)
         pass
+
 
 def import_app(app_path):
     """Import application from string 'module:callable'."""
@@ -140,8 +150,11 @@ def import_app(app_path):
         module = importlib.import_module(module_path)
         return getattr(module, app_name)
     except Exception as e:
-        logger.error(f"Could not import app '{Colors.BOLD}{app_path}{Colors.ENDC}': {e}")
+        logger.error(
+            f"Could not import app '{Colors.BOLD}{app_path}{Colors.ENDC}': {e}"
+        )
         raise e
+
 
 def get_num_workers():
     """Returns a default number of workers based on CPU count."""
@@ -150,9 +163,10 @@ def get_num_workers():
 
 class StatsdClient:
     """A lightweight StatsD UDP client for emitting metrics."""
-    
+
     def __init__(self, host: str, port: int = 8125, prefix: str = "asteri"):
         import socket
+
         self.host = host
         self.port = port
         self.prefix = prefix
@@ -160,7 +174,7 @@ class StatsdClient:
 
     def _send(self, payload: str):
         try:
-            self.sock.sendto(payload.encode('utf-8'), (self.host, self.port))
+            self.sock.sendto(payload.encode("utf-8"), (self.host, self.port))
         except OSError:
             pass
 
@@ -183,8 +197,8 @@ def parse_proxy_protocol(data):
         end_idx = data.find(b"\r\n")
         if end_idx == -1:
             return None, None, data
-        header = data[:end_idx].decode('latin-1')
-        remaining = data[end_idx+2:]
+        header = data[:end_idx].decode("latin-1")
+        remaining = data[end_idx + 2:]
         parts = header.split(" ")
         if len(parts) >= 6:
             src_ip = parts[2]
@@ -192,39 +206,40 @@ def parse_proxy_protocol(data):
             src_port = int(parts[4])
             dst_port = int(parts[5])
             return (src_ip, src_port), (dst_ip, dst_port), remaining
-            
+
     v2_prefix = b"\r\n\r\n\x00\r\nQUIT\n"
     if data.startswith(v2_prefix):
         if len(data) < 16:
             return None, None, data
-        len_val = int.from_bytes(data[14:16], byteorder='big')
+        len_val = int.from_bytes(data[14:16], byteorder="big")
         if len(data) < 16 + len_val:
             return None, None, data
-            
+
         remaining = data[16 + len_val:]
         addr_family = data[13]
-        
-        if (addr_family & 0xF0) == 0x10: # IPv4
+
+        if (addr_family & 0xF0) == 0x10:  # IPv4
             src_ip = ".".join(str(b) for b in data[16:20])
             dst_ip = ".".join(str(b) for b in data[20:24])
-            src_port = int.from_bytes(data[24:26], byteorder='big')
-            dst_port = int.from_bytes(data[26:28], byteorder='big')
+            src_port = int.from_bytes(data[24:26], byteorder="big")
+            dst_port = int.from_bytes(data[26:28], byteorder="big")
             return (src_ip, src_port), (dst_ip, dst_port), remaining
-        elif (addr_family & 0xF0) == 0x20: # IPv6
+        elif (addr_family & 0xF0) == 0x20:  # IPv6
             import socket
+
             src_ip = socket.inet_ntop(socket.AF_INET6, data[16:32])
             dst_ip = socket.inet_ntop(socket.AF_INET6, data[32:48])
-            src_port = int.from_bytes(data[48:50], byteorder='big')
-            dst_port = int.from_bytes(data[50:52], byteorder='big')
+            src_port = int.from_bytes(data[48:50], byteorder="big")
+            dst_port = int.from_bytes(data[50:52], byteorder="big")
             return (src_ip, src_port), (dst_ip, dst_port), remaining
-            
+
     return None, None, data
 
 
 def make_websocket_frame(payload, opcode=1):
     """Encodes a WebSocket frame (server-to-client, unmasked)."""
     if isinstance(payload, str):
-        payload = payload.encode('utf-8')
+        payload = payload.encode("utf-8")
     length = len(payload)
     header = bytearray()
     header.append(0x80 | opcode)
@@ -232,10 +247,10 @@ def make_websocket_frame(payload, opcode=1):
         header.append(length)
     elif length <= 65535:
         header.append(126)
-        header.extend(length.to_bytes(2, byteorder='big'))
+        header.extend(length.to_bytes(2, byteorder="big"))
     else:
         header.append(127)
-        header.extend(length.to_bytes(8, byteorder='big'))
+        header.extend(length.to_bytes(8, byteorder="big"))
     return bytes(header) + payload
 
 
@@ -248,37 +263,37 @@ def parse_websocket_frame(data):
     masked_and_length = data[1]
     masked = bool(masked_and_length & 0x80)
     length = masked_and_length & 0x7F
-    
+
     idx = 2
     if length == 126:
         if len(data) < 4:
             return None, None, data
-        length = int.from_bytes(data[2:4], byteorder='big')
+        length = int.from_bytes(data[2:4], byteorder="big")
         idx = 4
     elif length == 127:
         if len(data) < 10:
             return None, None, data
-        length = int.from_bytes(data[2:10], byteorder='big')
+        length = int.from_bytes(data[2:10], byteorder="big")
         idx = 10
-        
+
     mask_key = None
     if masked:
         if len(data) < idx + 4:
             return None, None, data
-        mask_key = data[idx:idx+4]
+        mask_key = data[idx: idx + 4]
         idx += 4
-        
+
     if len(data) < idx + length:
         return None, None, data
-        
-    raw_payload = data[idx:idx+length]
-    remaining = data[idx+length:]
-    
+
+    raw_payload = data[idx: idx + length]
+    remaining = data[idx + length:]
+
     if mask_key:
         payload = bytes(b ^ mask_key[i % 4] for i, b in enumerate(raw_payload))
     else:
         payload = raw_payload
-        
+
     return opcode, payload, remaining
 
 
@@ -287,10 +302,10 @@ def build_status_html(worker_type, pid, ppid):
     import psutil
     import platform
     from datetime import datetime
-    
+
     cpu_usage = psutil.cpu_percent()
     mem = psutil.virtual_memory()
-    
+
     status_html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -380,10 +395,9 @@ def build_status_html(worker_type, pid, ppid):
         </div>
         
         <div class="footer">
-            Asteri Web Server v1.2.2 &bull; {datetime.now().strftime("%H:%M:%S")}
+            Asteri Web Server v2.2.2 &bull; {datetime.now().strftime("%H:%M:%S")}
         </div>
     </div>
 </body>
 </html>"""
     return status_html
-

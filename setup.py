@@ -1,17 +1,20 @@
-from setuptools import setup, find_packages
+from setuptools import setup, find_packages, Extension
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
+ext_modules = [Extension("asteri.fastparser", ["asteri/fastparser.c"])]
+
 setup(
     name="asteri",
-    version="1.2.2",
+    version="2.2.2",
     author="Ishikawa Uta",
     description="Asteri: High Performance Python Web Server",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/IshikawaUta/asteri",
     packages=find_packages(),
+    ext_modules=ext_modules,
     license="MIT",
     classifiers=[
         "Programming Language :: Python :: 3",

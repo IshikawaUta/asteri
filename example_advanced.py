@@ -1,6 +1,5 @@
 import asyncio
-import os
-import sys
+
 
 # Formulate a complete, premium ASGI application demonstrating advanced features
 async def app(scope, receive, send):
@@ -12,9 +11,9 @@ async def app(scope, receive, send):
       - Proxy Protocol original IP & Port transparency
       - HTTP 103 Early Hints response interception
     """
-    
+
     # 1. Handle WebSocket Upgrade & Interactions
-    if scope['type'] == 'websocket':
+    if scope["type"] == "websocket":
         await send({"type": "websocket.accept"})
         try:
             while True:
@@ -22,15 +21,9 @@ async def app(scope, receive, send):
                 if msg.get("type") == "websocket.receive":
                     text = msg.get("text")
                     if text == "ping":
-                        await send({
-                            "type": "websocket.send",
-                            "text": "pong 🏓"
-                        })
+                        await send({"type": "websocket.send", "text": "pong 🏓"})
                     else:
-                        await send({
-                            "type": "websocket.send",
-                            "text": f"Echo: {text}"
-                        })
+                        await send({"type": "websocket.send", "text": f"Echo: {text}"})
                 elif msg.get("type") == "websocket.disconnect":
                     break
         except Exception:
@@ -38,22 +31,24 @@ async def app(scope, receive, send):
         return
 
     # 2. Handle standard HTTP routes
-    if scope['type'] == 'http':
+    if scope["type"] == "http":
         # Intercept path for dynamic actions
-        path = scope.get('path', '/')
-        
+        path = scope.get("path", "/")
+
         # Action: Increment dynamic Stash shared counter if client requests it
         counter_val = 0
         try:
             from asteri.dirty import StashClient
+
             # Connect to default stash server (if running) or fallback to local memory
             client = StashClient()
             # Try to increment atomic key 'global_requests'
             try:
                 # Key format: dynamic counter
                 current = client.get(b"global_requests") or b"0"
-                counter_val = int(current.decode('utf-8')) + 1
-                client.put(b"global_requests", str(counter_val).encode('utf-8'))
+                counter_val = int(current.decode("utf-8")) + 1
+                client.put(b"global_requests", str(
+                    counter_val).encode("utf-8"))
             except Exception:
                 # Fallback if StashServer is not active
                 counter_val = "Active (StashServer not running)"
@@ -63,33 +58,37 @@ async def app(scope, receive, send):
         # If HTTP 103 Early Hints is requested by client or triggered by server
         # We can emit an early hints response first
         if path == "/early-hints":
-            await send({
-                "type": "http.response.early_hints",
-                "headers": [
-                    (b"Link", b"</styles.css>; rel=preload; as=style"),
-                    (b"Link", b"</app.js>; rel=preload; as=script")
-                ]
-            })
-            await asyncio.sleep(0.5) # Simulate processing time
+            await send(
+                {
+                    "type": "http.response.early_hints",
+                    "headers": [
+                        (b"Link", b"</styles.css>; rel=preload; as=style"),
+                        (b"Link", b"</app.js>; rel=preload; as=script"),
+                    ],
+                }
+            )
+            await asyncio.sleep(0.5)  # Simulate processing time
 
         # Extract Client info (Proxy Protocol sets original client if present)
-        client_addr = scope.get('client')
+        client_addr = scope.get("client")
         client_ip = client_addr[0] if client_addr else "127.0.0.1"
         client_port = client_addr[1] if client_addr else "unknown"
 
         # Extract Server info
-        server_addr = scope.get('server')
+        server_addr = scope.get("server")
         server_ip = server_addr[0] if server_addr else "127.0.0.1"
         server_port = server_addr[1] if server_addr else "8000"
 
         # Build premium styled response
-        await send({
-            'type': 'http.response.start',
-            'status': 200,
-            'headers': [
-                (b'content-type', b'text/html; charset=utf-8'),
-            ],
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"text/html; charset=utf-8"),
+                ],
+            }
+        )
 
         html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -415,7 +414,7 @@ async def app(scope, receive, send):
         </div>
 
         <div class="footer">
-            Asteri Web Server v1.2.2 &bull; Built with premium performance in mind.
+            Asteri Web Server v2.2.2 &bull; Built with premium performance in mind.
         </div>
     </div>
 
@@ -463,7 +462,9 @@ async def app(scope, receive, send):
     </script>
 </body>
 </html>"""
-        await send({
-            'type': 'http.response.body',
-            'body': html.encode('utf-8'),
-        })
+        await send(
+            {
+                "type": "http.response.body",
+                "body": html.encode("utf-8"),
+            }
+        )

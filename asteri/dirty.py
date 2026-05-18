@@ -1,16 +1,17 @@
 import os
-import sys
 import struct
 import socket
+from typing import Any, Dict, Optional, Tuple
 import threading
-from asteri.utils import import_app, logger
+from asteri.utils import import_app
+
 
 # =====================================================================
 # 1. TLV Binary Encoder / Decoder
 # =====================================================================
 class TLV:
     """Helper for Type-Length-Value binary encoding and decoding."""
-    
+
     @staticmethod
     def encode(t: int, v: bytes) -> bytes:
         """Encode type (2 bytes) and length (4 bytes) followed by value."""
@@ -23,13 +24,13 @@ class TLV:
         """
         if len(data) < 6:
             return None, None, data
-        
+
         t, length = struct.unpack(">HI", data[:6])
         if len(data) < 6 + length:
             return None, None, data
-        
-        v = data[6:6+length]
-        return t, v, data[6+length:]
+
+        v = data[6: 6 + length]
+        return t, v, data[6 + length:]
 
 
 # =====================================================================
@@ -42,9 +43,10 @@ OP_SUCCESS = 101
 OP_NOT_FOUND = 102
 OP_ERROR = 103
 
+
 class StashServer:
     """A lightweight shared memory key-value server running in the Arbiter."""
-    
+
     def __init__(self, address):
         self.address = address
         self.data = {}
@@ -61,16 +63,19 @@ class StashServer:
                     os.unlink(self.address)
                 except OSError:
                     pass
-            self.server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.server_sock = socket.socket(
+                socket.AF_UNIX, socket.SOCK_STREAM)
         else:
             # TCP Socket (host, port)
-            self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        
+            self.server_sock = socket.socket(
+                socket.AF_INET, socket.SOCK_STREAM)
+            self.server_sock.setsockopt(
+                socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
         self.server_sock.bind(self.address)
         self.server_sock.listen(128)
         self.server_sock.settimeout(1.0)
-        
+
         self.thread = threading.Thread(target=self._run_loop, daemon=True)
         self.thread.start()
 
@@ -91,7 +96,9 @@ class StashServer:
         while self.running:
             try:
                 client, _ = self.server_sock.accept()
-                threading.Thread(target=self._handle_client, args=(client,), daemon=True).start()
+                threading.Thread(
+                    target=self._handle_client, args=(client,), daemon=True
+                ).start()
             except socket.timeout:
                 continue
             except OSError:
@@ -106,13 +113,13 @@ class StashServer:
                 if not data:
                     break
                 buffer += data
-                
+
                 while True:
                     t, val, remaining = TLV.decode(buffer)
                     if t is None:
                         break
                     buffer = remaining
-                    
+
                     response = self._process_request(t, val)
                     client.sendall(response)
         except OSError:
@@ -127,35 +134,37 @@ class StashServer:
         try:
             if op == OP_SET:
                 kt, k_bytes, rem = TLV.decode(payload)
-                if kt is None: return TLV.encode(OP_ERROR, b"Invalid SET key")
+                if kt is None:
+                    return TLV.encode(OP_ERROR, b"Invalid SET key")
                 vt, v_bytes, _ = TLV.decode(rem)
-                if vt is None: return TLV.encode(OP_ERROR, b"Invalid SET value")
-                
-                key = k_bytes.decode('utf-8')
+                if vt is None:
+                    return TLV.encode(OP_ERROR, b"Invalid SET value")
+
+                key = k_bytes.decode("utf-8")
                 self.data[key] = v_bytes
                 return TLV.encode(OP_SUCCESS, b"")
-                
+
             elif op == OP_GET:
-                key = payload.decode('utf-8')
+                key = payload.decode("utf-8")
                 if key in self.data:
                     return TLV.encode(OP_SUCCESS, self.data[key])
                 return TLV.encode(OP_NOT_FOUND, b"")
-                
+
             elif op == OP_DELETE:
-                key = payload.decode('utf-8')
+                key = payload.decode("utf-8")
                 if key in self.data:
                     del self.data[key]
                     return TLV.encode(OP_SUCCESS, b"")
                 return TLV.encode(OP_NOT_FOUND, b"")
-                
+
             return TLV.encode(OP_ERROR, b"Unknown operation")
         except Exception as e:
-            return TLV.encode(OP_ERROR, str(e).encode('utf-8'))
+            return TLV.encode(OP_ERROR, str(e).encode("utf-8"))
 
 
 class StashClient:
     """Client interface for workers to interact with StashServer."""
-    
+
     def __init__(self, address):
         self.address = address
 
@@ -164,11 +173,11 @@ class StashClient:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         else:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        
+
         try:
             sock.connect(self.address)
             sock.sendall(TLV.encode(op, payload))
-            
+
             buffer = b""
             while True:
                 data = sock.recv(4096)
@@ -180,7 +189,7 @@ class StashClient:
                     return t, val
             return OP_ERROR, b"No response"
         except OSError as e:
-            return OP_ERROR, str(e).encode('utf-8')
+            return OP_ERROR, str(e).encode("utf-8")
         finally:
             try:
                 sock.close()
@@ -188,19 +197,19 @@ class StashClient:
                 pass
 
     def set(self, key: str, value: bytes) -> bool:
-        k_bytes = key.encode('utf-8')
+        k_bytes = key.encode("utf-8")
         payload = TLV.encode(1, k_bytes) + TLV.encode(2, value)
         t, val = self._send_request(OP_SET, payload)
         return t == OP_SUCCESS
 
-    def get(self, key: str) -> bytes:
-        t, val = self._send_request(OP_GET, key.encode('utf-8'))
+    def get(self, key: str) -> Optional[bytes]:
+        t, val = self._send_request(OP_GET, key.encode("utf-8"))
         if t == OP_SUCCESS:
             return val
         return None
 
     def delete(self, key: str) -> bool:
-        t, val = self._send_request(OP_DELETE, key.encode('utf-8'))
+        t, val = self._send_request(OP_DELETE, key.encode("utf-8"))
         return t == OP_SUCCESS
 
 
@@ -209,16 +218,16 @@ class StashClient:
 # =====================================================================
 class DirtyAppLoader:
     """Dynamic multi-app router that delegates requests to multiple apps based on Host header or Path."""
-    
+
     def __init__(self, mapping_str: str):
-        self.routes = {}
-        self.loaded_apps = {}
+        self.routes: Dict[Tuple[str, str], str] = {}
+        self.loaded_apps: Dict[str, Any] = {}
         self._parse_mapping(mapping_str)
 
     def _parse_mapping(self, mapping_str: str):
         if not mapping_str:
             return
-        
+
         parts = mapping_str.split(",")
         for part in parts:
             if "=" not in part:
@@ -226,7 +235,7 @@ class DirtyAppLoader:
             pattern, app_str = part.strip().split("=", 1)
             pattern = pattern.strip()
             app_str = app_str.strip()
-            
+
             if pattern.startswith("/"):
                 self.routes[("path", pattern)] = app_str
             elif pattern == "default":
@@ -240,18 +249,18 @@ class DirtyAppLoader:
             for (rtype, rpat), app_str in self.routes.items():
                 if rtype == "host" and rpat == clean_host:
                     return app_str
-        
+
         for (rtype, rpat), app_str in self.routes.items():
             if rtype == "path" and path.startswith(rpat):
                 return app_str
-        
+
         default_app = self.routes.get(("default", ""))
         if default_app:
             return default_app
-            
+
         if self.routes:
             return list(self.routes.values())[0]
-            
+
         return None
 
     def _get_app(self, app_str: str):
@@ -272,16 +281,16 @@ class DirtyAppLoader:
     def wsgi_call(self, environ, start_response):
         host = environ.get("HTTP_HOST", "")
         path = environ.get("PATH_INFO", "")
-        
+
         app_str = self._match_app(host, path)
         app = self._get_app(app_str)
-        
+
         if app is None:
             status = "404 Not Found"
             headers = [("Content-Type", "text/plain")]
             start_response(status, headers)
             return [b"No dynamic app routed for host/path"]
-        
+
         return app(environ, start_response)
 
     async def asgi_call(self, scope, receive, send):
@@ -289,29 +298,35 @@ class DirtyAppLoader:
             host = ""
             for k, v in scope.get("headers", []):
                 if k == b"host":
-                    host = v.decode('utf-8')
+                    host = v.decode("utf-8")
                     break
             path = scope.get("path", "")
-            
+
             app_str = self._match_app(host, path)
             app = self._get_app(app_str)
-            
+
             if app is None:
-                await send({
-                    "type": "http.response.start",
-                    "status": 404,
-                    "headers": [(b"content-type", b"text/plain")]
-                })
-                await send({
-                    "type": "http.response.body",
-                    "body": b"No dynamic app routed for host/path",
-                    "more_body": False
-                })
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 404,
+                        "headers": [(b"content-type", b"text/plain")],
+                    }
+                )
+                await send(
+                    {
+                        "type": "http.response.body",
+                        "body": b"No dynamic app routed for host/path",
+                        "more_body": False,
+                    }
+                )
                 return
-            
+
             await app(scope, receive, send)
         else:
-            app_str = self.routes.get(("default", "")) or (list(self.routes.values())[0] if self.routes else None)
+            app_str = self.routes.get(("default", "")) or (
+                list(self.routes.values())[0] if self.routes else None
+            )
             app = self._get_app(app_str)
             if app:
                 await app(scope, receive, send)

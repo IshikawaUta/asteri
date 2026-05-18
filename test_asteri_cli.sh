@@ -27,6 +27,7 @@ setup_dummy_files() {
     rm -f cli_test.pid
     echo "workers = 1" > test_asteri_conf.py
     echo "def app(environ, start_response): start_response('200 OK', [('Content-Type', 'text/plain')]); return [b'OK']" > test_app.py
+    echo -e "async def app(scope, receive, send):\n    if scope['type'] == 'http':\n        await send({'type': 'http.response.start', 'status': 200, 'headers': [(b'content-type', b'text/plain')]})\n        await send({'type': 'http.response.body', 'body': b'ASGI OK', 'more_body': False})" > test_asgi_app.py
     if command -v openssl > /dev/null; then
         openssl req -x509 -newkey rsa:2048 -keyout test_key.pem -out test_cert.pem -days 1 -nodes -subj "/CN=localhost" > /dev/null 2>&1
     else
@@ -36,7 +37,7 @@ setup_dummy_files() {
 
 cleanup_dummy_files() {
     echo -e "${BLUE}Cleaning up test files...${NC}"
-    rm -f test_asteri_conf.py test_key.pem test_cert.pem cli_test.pid cli_access.log cli_error.log cli_capture.log last_error.log test_app.py cli_test_ctrl.sock
+    rm -f test_asteri_conf.py test_key.pem test_cert.pem cli_test.pid cli_access.log cli_error.log cli_capture.log last_error.log test_app.py test_asgi_app.py cli_test_ctrl.sock
 }
 
 run_test() {
@@ -80,16 +81,29 @@ run_test() {
         local pid=$!
         sleep $TIMEOUT
         
-        if ps -p $pid > /dev/null; then
+        local check_ok=true
+        if [ "$desc" == "Prometheus Metrics" ]; then
+            if ! curl -s http://127.0.0.1:19316/metrics | grep -q "asteri_requests_total"; then
+                check_ok=false
+            fi
+        fi
+        
+        if ps -p $pid > /dev/null && [ "$check_ok" == "true" ]; then
             echo -e "${GREEN}[SUCCESS]${NC}"
             kill $pid
             wait $pid 2>/dev/null
         else
             echo -e "${RED}[FAIL]${NC}"
-            echo "FAIL: $desc ($cmd) - Exit premature" >> $TEST_LOG
+            if [ "$check_ok" == "false" ]; then
+                echo "FAIL: $desc ($cmd) - Metrics validation failed" >> $TEST_LOG
+            else
+                echo "FAIL: $desc ($cmd) - Exit premature" >> $TEST_LOG
+            fi
             echo "--- Error Output ---" >> $TEST_LOG
             cat $tmp_err >> $TEST_LOG
             echo "--------------------" >> $TEST_LOG
+            kill $pid 2>/dev/null
+            wait $pid 2>/dev/null
         fi
     fi
     rm -f $tmp_err
@@ -143,6 +157,7 @@ run_test "Disable Dashboard" "$ASTERI --disable-dashboard -b 127.0.0.1:19313 $AP
 echo -e "\n${YELLOW}[GROUP: LIMITS & H2]${NC}"
 run_test "Limits" "$ASTERI --limit-request-line 1024 --limit-request-fields 20 --limit-request-field_size 4096 -b 127.0.0.1:19304 $APP" "long"
 run_test "HTTP/2" "$ASTERI --http-protocols h1,h2 --http2-max-concurrent-streams 50 --keyfile test_key.pem --certfile test_cert.pem -b 127.0.0.1:19305 $APP" "long"
+run_test "HTTP/3" "$ASTERI --http-protocols h1,h2,h3 --keyfile test_key.pem --certfile test_cert.pem -b 127.0.0.1:19314 $APP" "long"
 
 echo -e "\n${YELLOW}[GROUP: ADVANCED FEATURES]${NC}"
 run_test "Tornado Worker" "$ASTERI -k tornado -w 1 -b 127.0.0.1:19307 $APP" "long"
@@ -151,6 +166,8 @@ run_test "Control Socket" "$ASTERI --control-socket cli_test_ctrl.sock -b 127.0.
 run_test "Dirty Apps" "$ASTERI --dirty-apps 'host1:app1' -b 127.0.0.1:19310 $APP" "long"
 run_test "Stash Address" "$ASTERI --stash-address '127.0.0.1:9999' -b 127.0.0.1:19311 $APP" "long"
 run_test "StatsD Metrics" "$ASTERI --statsd-host 127.0.0.1 --statsd-port 8125 --statsd-prefix my_asteri -b 127.0.0.1:19312 $APP" "long"
+run_test "ASGI Auto-Promote" "$ASTERI -b 127.0.0.1:19315 test_asgi_app:app" "long"
+run_test "Prometheus Metrics" "$ASTERI -b 127.0.0.1:19316 $APP" "long"
 
 echo -e "\n${BLUE}=================================================${NC}"
 if [ $(wc -l < $TEST_LOG) -gt 3 ]; then

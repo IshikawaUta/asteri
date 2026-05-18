@@ -167,16 +167,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
 
         <div class="footer">
-            Asteri Web Server v1.2.2 &bull; Powered by Tornado Async Engine
+            Asteri Web Server v2.2.2 &bull; Powered by Tornado Async Engine
         </div>
     </div>
 </body>
 </html>
 """
 
+
 def app(environ, start_response):
     """Standard WSGI entry point. Zero custom middleware needed!"""
-    status = '200 OK'
-    response_headers = [('Content-Type', 'text/html; charset=utf-8')]
+    status = "200 OK"
+    response_headers = [("Content-Type", "text/html; charset=utf-8")]
     start_response(status, response_headers)
-    return [HTML_TEMPLATE.encode('utf-8')]
+    return [HTML_TEMPLATE.encode("utf-8")]

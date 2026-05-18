@@ -2,6 +2,7 @@ import unittest
 import struct
 from asteri.uwsgi import UWSGIHandler
 
+
 class TestUWSGI(unittest.TestCase):
     def test_is_uwsgi(self):
         # Starts with 0
@@ -18,8 +19,14 @@ class TestUWSGI(unittest.TestCase):
         # Key 2: "TEST" -> len 4
         # Val 2: "OK"   -> len 2
         var_data = (
-            struct.pack("<H", 4) + b"KEY1" + struct.pack("<H", 4) + b"VAL1" +
-            struct.pack("<H", 4) + b"TEST" + struct.pack("<H", 2) + b"OK"
+            struct.pack("<H", 4)
+            + b"KEY1"
+            + struct.pack("<H", 4)
+            + b"VAL1"
+            + struct.pack("<H", 4)
+            + b"TEST"
+            + struct.pack("<H", 2)
+            + b"OK"
         )
         size = len(var_data)
         modifier1 = 0
@@ -29,10 +36,7 @@ class TestUWSGI(unittest.TestCase):
 
         vars_dict, mod = UWSGIHandler.parse(packet)
         self.assertEqual(mod, modifier1)
-        self.assertEqual(vars_dict, {
-            "KEY1": "VAL1",
-            "TEST": "OK"
-        })
+        self.assertEqual(vars_dict, {"KEY1": "VAL1", "TEST": "OK"})
 
     def test_parse_truncated_packet(self):
         # Header specifies size of 10, but we only supply 2 bytes of body
@@ -46,6 +50,7 @@ class TestUWSGI(unittest.TestCase):
         vars_dict, mod = UWSGIHandler.parse(b"\x00\x00")
         self.assertIsNone(vars_dict)
         self.assertIsNone(mod)
+
 
 if __name__ == "__main__":
     unittest.main()

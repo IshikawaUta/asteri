@@ -3,6 +3,7 @@ import socket
 from asteri.arbiter import Arbiter
 from asteri.workers.sync import SyncWorker
 
+
 class TestArbiter(unittest.TestCase):
     def test_arbiter_initialization_defaults(self):
         arb = Arbiter("example_wsgi:app", SyncWorker)
@@ -28,7 +29,7 @@ class TestArbiter(unittest.TestCase):
             proc_name="my_master",
             timeout=60,
             backlog=1024,
-            custom_arg="hello"
+            custom_arg="hello",
         )
         self.assertEqual(arb.num_workers, 4)
         self.assertEqual(arb.binds, ["127.0.0.1:9000", "0.0.0.0:9001"])
@@ -41,25 +42,26 @@ class TestArbiter(unittest.TestCase):
     def test_arbiter_socket_binding(self):
         # We find a free port to bind to dynamically
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.bind(('', 0))
+        s.bind(("", 0))
         port = s.getsockname()[1]
         s.close()
 
         bind_addr = f"127.0.0.1:{port}"
         arb = Arbiter("example_wsgi:app", SyncWorker, binds=[bind_addr])
-        
+
         # We can mock parts of manage_workers or start so that it sets up socks but doesn't enter the infinite loop
         # We override start or just do a partial call
         # Let's mock manage_workers to do nothing so we can call start without blocking
         def dummy_manage_workers():
             pass
+
         arb.manage_workers = dummy_manage_workers
-        
+
         # Ensure it doesn't daemonize or write PID
         arb.daemon = False
         arb.pidfile = None
         arb.umask = 0
-        
+
         try:
             arb.start()
             self.assertEqual(len(arb.socks), 1)
@@ -70,6 +72,7 @@ class TestArbiter(unittest.TestCase):
             # Clean up sockets
             for sock in arb.socks:
                 sock.close()
+
 
 if __name__ == "__main__":
     unittest.main()

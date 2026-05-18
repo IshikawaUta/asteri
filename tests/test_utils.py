@@ -1,9 +1,8 @@
 import unittest
 import os
-import sys
 import logging
-from unittest.mock import MagicMock
 from asteri.utils import import_app, get_num_workers, NoColorFormatter, Colors
+
 
 class TestUtils(unittest.TestCase):
     def test_import_app_success(self):
@@ -32,12 +31,13 @@ class TestUtils(unittest.TestCase):
             lineno=10,
             msg=f"{Colors.GREEN}Hello World{Colors.ENDC}",
             args=(),
-            exc_info=None
+            exc_info=None,
         )
         formatted = formatter.format(record)
         # Verify color codes are stripped
         self.assertEqual(formatted, "Hello World")
-        self.assertNotIn("\x1B", formatted)
+        self.assertNotIn("\x1b", formatted)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,7 +1,13 @@
-import socket
-import io
 import http.client
 from .utils import logger, access_logger
+
+try:
+    from asteri import fastparser  # type: ignore
+
+    FAST_PARSER_AVAILABLE = True
+except ImportError:
+    FAST_PARSER_AVAILABLE = False
+
 
 class HTTPRequest:
     def __init__(self, method, path, version, headers, body=None):
@@ -11,18 +17,28 @@ class HTTPRequest:
         self.headers = headers
         self.body = body
 
+
 class HTTPParser:
     @staticmethod
     def parse(raw_data):
-        """Simple HTTP/1.1 parser."""
+        """Simple HTTP/1.1 parser with fast C fallback."""
+        if FAST_PARSER_AVAILABLE:
+            try:
+                res = fastparser.parse_http(raw_data)
+                if res is not None:
+                    method, path, version, headers, body = res
+                    return HTTPRequest(method, path, version, headers, body)
+            except Exception as e:
+                logger.debug(f"C fastparser failed, falling back: {e}")
+
         try:
             # Split headers and body using bytes to keep body intact
             header_bytes, _, body = raw_data.partition(b"\r\n\r\n")
-            
+
             # Decode headers using latin-1 (standard for HTTP)
-            header_part = header_bytes.decode('latin-1')
-            lines = header_part.split('\r\n')
-            
+            header_part = header_bytes.decode("latin-1")
+            lines = header_part.split("\r\n")
+
             if not lines or not lines[0]:
                 return None
 
@@ -30,32 +46,36 @@ class HTTPParser:
             request_line = lines[0].split()
             if len(request_line) < 3:
                 return None
-            
+
             method, path, version = request_line
-            
+
             # Headers
             headers = {}
             for line in lines[1:]:
                 if ":" in line:
                     key, value = line.split(":", 1)
                     headers[key.lower().strip()] = value.strip()
-            
+
             return HTTPRequest(method, path, version, headers, body)
         except Exception as e:
             logger.error(f"Failed to parse HTTP request: {e}")
             return None
 
+
 try:
     import h2.connection
     import h2.events
+
     H2_AVAILABLE = True
 except ImportError:
     H2_AVAILABLE = False
 
+
 class HTTP2Handler:
     """Professional HTTP/2 handler using 'h2' library."""
+
     PREFACE = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
-    
+
     @staticmethod
     def is_http2(data):
         return data.startswith(HTTP2Handler.PREFACE)
@@ -80,7 +100,8 @@ class HTTP2Handler:
         while True:
             try:
                 data = self.sock.recv(65535)
-                if not data: break
+                if not data:
+                    break
                 self.process_data(data)
             except Exception as e:
                 logger.debug(f"H2 Connection closed: {e}")
@@ -91,7 +112,7 @@ class HTTP2Handler:
         for event in events:
             if isinstance(event, h2.events.RequestReceived):
                 self.handle_request(event)
-        
+
         data_to_send = self.conn.data_to_send()
         if data_to_send:
             self.sock.sendall(data_to_send)
@@ -99,37 +120,40 @@ class HTTP2Handler:
     def handle_request(self, event):
         # Convert H2 headers to dict
         headers = dict(event.headers)
-        method = headers.get(':method')
-        path = headers.get(':path')
-        
+        method = headers.get(":method")
+        path = headers.get(":path")
+
         # This would then call the app... for now just logging
         access_logger.info(f"H2 Request: {method} {path}")
-        
+
         # Simple H2 Response
         response_headers = [
-            (':status', '200'),
-            ('content-type', 'text/plain'),
-            ('server', 'Asteri'),
+            (":status", "200"),
+            ("content-type", "text/plain"),
+            ("server", "Asteri"),
         ]
         self.conn.send_headers(event.stream_id, response_headers)
-        self.conn.send_data(event.stream_id, b"Hello from Asteri (HTTP/2)!", end_stream=True)
+        self.conn.send_data(
+            event.stream_id, b"Hello from Asteri (HTTP/2)!", end_stream=True
+        )
         self.sock.sendall(self.conn.data_to_send())
+
 
 def build_http_response(status_code, headers, body):
     """Build a standard HTTP/1.1 response."""
     status_text = http.client.responses.get(status_code, "Unknown")
-    
+
     # Ensure body is bytes for length calculation
     if isinstance(body, str):
-        body = body.encode('utf-8')
-    
+        body = body.encode("utf-8")
+
     response = f"HTTP/1.1 {status_code} {status_text}\r\n"
-    
+
     if "Content-Length" not in headers and body:
         headers["Content-Length"] = str(len(body))
-    
+
     for key, value in headers.items():
         response += f"{key}: {value}\r\n"
-    
+
     response += "\r\n"
-    return response.encode('latin-1') + body
+    return response.encode("latin-1") + body

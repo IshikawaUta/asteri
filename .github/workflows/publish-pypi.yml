@@ -1,0 +1,42 @@
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Hanya aktif saat Anda menekan tag versi seperti v2.2.2
+
+jobs:
+  pypi-publish:
+    name: Build and Upload Release to PyPI
+    runs-on: ubuntu-latest
+    environment: pypi
+    # Permission 'id-token: write' wajib untuk otentikasi PyPI OIDC Trusted Publishing (tanpa password/token)
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Build Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine
+
+    - name: Build Source Distribution (sdist)
+      # Membangun Source Distribution (sdist) agar module C-Extension dikompilasi secara otomatis di mesin end-user
+      run: python -m build --sdist
+
+    - name: Publish package distributions to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        # Jika Anda menggunakan API Token lama, tambahkan repository secret PYPI_API_TOKEN
+        # Namun direkomendasikan menggunakan Trusted Publishing OIDC di pengaturan PyPI
+        password: ${{ secrets.PYPI_API_TOKEN || '' }}
+        skip-existing: true

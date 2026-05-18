@@ -3,10 +3,15 @@ try:
     from fastapi.responses import HTMLResponse
 except ImportError:
     # Fallback if fastapi is not installed
-    class FastAPI: pass
-    HTMLResponse = lambda content: content
+    class FastAPI:
+        pass
+
+    def HTMLResponse(content):
+        return content
+
 
 app = FastAPI()
+
 
 @app.get("/", response_class=HTMLResponse)
 async def read_items():
@@ -132,7 +137,7 @@ async def read_items():
         <p>This is a modern asynchronous FastAPI application running on the high-performance Asteri web server.</p>
         <p>Try running with: <code>python3 -m asteri example_fastapi:app -k asgi -w 4</code></p>
         <div class="footer">
-            Asteri Web Server v1.2.2 &bull; Powered by FastAPI ASGI Engine
+            Asteri Web Server v2.2.2 &bull; Powered by FastAPI ASGI Engine
         </div>
     </div>
 </body>

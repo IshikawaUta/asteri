@@ -3,9 +3,15 @@ try:
 except ImportError:
     # Fallback if flask is not installed
     class Flask:
-        def __init__(self, name): pass
-        def route(self, path): return lambda x: x
-    render_template_string = lambda x, **y: x
+        def __init__(self, name):
+            pass
+
+        def route(self, path):
+            return lambda x: x
+
+    def render_template_string(x, **y):
+        return x
+
 
 app = Flask(__name__)
 
@@ -131,16 +137,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <p>This is a standard Flask application running on the high-performance Asteri web server.</p>
         <p>Try running with: <code>python3 -m asteri example_flask:app -k gthread -w 4</code></p>
         <div class="footer">
-            Asteri Web Server v1.2.2 &bull; Powered by Flask WSGI Engine
+            Asteri Web Server v2.2.2 &bull; Powered by Flask WSGI Engine
         </div>
     </div>
 </body>
 </html>
 """
 
-@app.route('/')
+
+@app.route("/")
 def index():
     return render_template_string(HTML_TEMPLATE)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     app.run()

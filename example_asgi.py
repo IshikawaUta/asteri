@@ -1,14 +1,16 @@
 async def app(scope, receive, send):
     """Simple ASGI Application with premium Asteri styling."""
-    if scope['type'] == 'http':
-        await send({
-            'type': 'http.response.start',
-            'status': 200,
-            'headers': [
-                (b'content-type', b'text/html; charset=utf-8'),
-            ],
-        })
-        
+    if scope["type"] == "http":
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"text/html; charset=utf-8"),
+                ],
+            }
+        )
+
         html = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -121,12 +123,14 @@ async def app(scope, receive, send):
         <h1>🌟 Hello from Asteri</h1>
         <p>This high-performance ASGI application is powered by the fast and light Asteri web server.</p>
         <div class="footer">
-            Asteri Web Server v1.2.2 &bull; Powered by Asteri ASGI Engine
+            Asteri Web Server v2.2.2 &bull; Powered by Asteri ASGI Engine
         </div>
     </div>
 </body>
 </html>"""
-        await send({
-            'type': 'http.response.body',
-            'body': html.encode('utf-8'),
-        })
+        await send(
+            {
+                "type": "http.response.body",
+                "body": html.encode("utf-8"),
+            }
+        )

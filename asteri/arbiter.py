@@ -8,16 +8,35 @@ from .utils import logger, set_proctitle, Colors
 try:
     from watchdog.observers import Observer
     from watchdog.events import FileSystemEventHandler
+
     WATCHDOG_AVAILABLE = True
 except ImportError:
     WATCHDOG_AVAILABLE = False
 
+
 class Arbiter:
     """The Master process that manages workers."""
-    
-    def __init__(self, app_path, worker_class, num_workers=1, binds=None, reload=False, certfile=None, keyfile=None,
-                 daemon=False, pidfile=None, user=None, group=None, umask=0, proc_name=None, timeout=30,
-                 backlog=2048, reuse_port=False, **worker_kwargs):
+
+    def __init__(
+        self,
+        app_path,
+        worker_class,
+        num_workers=1,
+        binds=None,
+        reload=False,
+        certfile=None,
+        keyfile=None,
+        daemon=False,
+        pidfile=None,
+        user=None,
+        group=None,
+        umask=0,
+        proc_name=None,
+        timeout=30,
+        backlog=2048,
+        reuse_port=False,
+        **worker_kwargs,
+    ):
         self.app_path = app_path
         self.worker_class = worker_class
         self.num_workers = num_workers
@@ -35,92 +54,133 @@ class Arbiter:
         self.backlog = backlog
         self.reuse_port = reuse_port
         self.worker_kwargs = worker_kwargs
-        self.workers = {} # pid -> worker_instance
-        self.socks = [] # list of listening sockets
+        self.workers = {}  # pid -> worker_instance
+        self.socks = []  # list of listening sockets
         self.alive = True
         self.pid = os.getpid()
         self.reloader = None
-        
+
         self.statsd_host = worker_kwargs.get("statsd_host", None)
         self.statsd_port = worker_kwargs.get("statsd_port", 8125)
         self.statsd_prefix = worker_kwargs.get("statsd_prefix", "asteri")
         if self.statsd_host:
             from asteri.utils import StatsdClient
-            self.statsd = StatsdClient(self.statsd_host, self.statsd_port, self.statsd_prefix)
+
+            self.statsd = StatsdClient(
+                self.statsd_host, self.statsd_port, self.statsd_prefix
+            )
         else:
             self.statsd = None
-            
+
         self.control_socket = worker_kwargs.get("control_socket", None)
         self.control_sock_server = None
+
+        stash_address = self.worker_kwargs.get("stash_address")
+        if stash_address:
+            from asteri.dirty import StashClient
+
+            self.stash = StashClient(stash_address)
+        else:
+            self.stash = None
 
     def start(self):
         if self.daemon:
             self.daemonize()
-        
+
         if self.pidfile:
             self.write_pid()
-            
+
         if self.umask:
             os.umask(self.umask)
 
         set_proctitle(self.proc_name)
-        logger.info(f"Starting Asteri Arbiter (pid: {Colors.BOLD}{os.getpid()}{Colors.ENDC})")
-        
+        logger.info(
+            f"Starting Asteri Arbiter (pid: {Colors.BOLD}{os.getpid()}{Colors.ENDC})"
+        )
+
         if self.control_socket:
             self._start_control_socket()
-        
+
         if self.reload and WATCHDOG_AVAILABLE:
             self.setup_reloader()
         elif self.reload:
-            logger.warning("Watchdog not available, falling back to manual reload.")
-        
+            logger.warning(
+                "Watchdog not available, falling back to manual reload.")
+
         # Create listener sockets for all binds (or inherit from systemd socket activation)
         listen_fds = os.environ.get("LISTEN_FDS")
         listen_pid = os.environ.get("LISTEN_PID")
-        
+
         systemd_activation = False
         if listen_fds and (not listen_pid or int(listen_pid) == os.getpid()):
             systemd_activation = True
             fds_count = int(listen_fds)
-            logger.info(f"Systemd socket activation detected. Inheriting {fds_count} socket(s)...")
-            
+            logger.info(
+                f"Systemd socket activation detected. Inheriting {fds_count} socket(s)..."
+            )
+
             for fd in range(3, 3 + fds_count):
                 try:
-                    sock = socket.fromfd(fd, socket.AF_INET, socket.SOCK_STREAM)
+                    sock = socket.fromfd(
+                        fd, socket.AF_INET, socket.SOCK_STREAM)
                     sock.setblocking(False)
                     self.socks.append(sock)
-                    logger.info(f"Inherited systemd socket from file descriptor {fd}")
+                    logger.info(
+                        f"Inherited systemd socket from file descriptor {fd}")
                 except Exception as e:
-                    logger.error(f"Failed to inherit systemd socket from fd {fd}: {e}")
+                    logger.error(
+                        f"Failed to inherit systemd socket from fd {fd}: {e}")
                     sys.exit(1)
-        
+
         if not systemd_activation:
             for bind in self.binds:
                 try:
                     host, port = bind.split(":")
                     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                    
-                    if self.reuse_port and hasattr(socket, 'SO_REUSEPORT'):
-                        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-                    
+
+                    if self.reuse_port and hasattr(socket, "SO_REUSEPORT"):
+                        sock.setsockopt(socket.SOL_SOCKET,
+                                        socket.SO_REUSEPORT, 1)
+
                     if self.certfile and self.keyfile:
                         import ssl
+
                         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-                        context.load_cert_chain(certfile=self.certfile, keyfile=self.keyfile)
+                        context.load_cert_chain(
+                            certfile=self.certfile, keyfile=self.keyfile
+                        )
                         sock = context.wrap_socket(sock, server_side=True)
-                    
+
                     sock.bind((host, int(port)))
                     sock.listen(self.backlog)
                     sock.setblocking(False)
                     self.socks.append(sock)
-                    
+
                     scheme = "https" if self.certfile else "http"
-                    logger.info(f"Listening on {Colors.UNDERLINE}{scheme}://{bind}{Colors.ENDC}")
+                    logger.info(
+                        f"Listening on {Colors.UNDERLINE}{scheme}://{bind}{Colors.ENDC}"
+                    )
+
+                    # Bind UDP socket for HTTP/3 QUIC if enabled
+                    protocols = self.worker_kwargs.get("http_protocols", "h1")
+                    if "h3" in protocols:
+                        udp_sock = socket.socket(
+                            socket.AF_INET, socket.SOCK_DGRAM)
+                        udp_sock.setsockopt(
+                            socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                        if self.reuse_port and hasattr(socket, "SO_REUSEPORT"):
+                            udp_sock.setsockopt(
+                                socket.SOL_SOCKET, socket.SO_REUSEPORT, 1
+                            )
+                        udp_sock.bind((host, int(port)))
+                        udp_sock.setblocking(False)
+                        self.socks.append(udp_sock)
+                        logger.info(f"Listening on udp://{bind} (QUIC/HTTP/3)")
                 except Exception as e:
                     logger.error(f"Failed to bind to {bind}: {e}")
                     sys.exit(1)
-        
+
         self.setup_signals()
         self.manage_workers()
 
@@ -128,40 +188,49 @@ class Arbiter:
         class ReloadHandler(FileSystemEventHandler):
             def __init__(self, arbiter):
                 self.arbiter = arbiter
+
             def on_modified(self, event):
-                if event.src_path.endswith('.py'):
-                    logger.info(f"Change detected in {Colors.BOLD}{os.path.basename(event.src_path)}{Colors.ENDC}. Reloading...")
+                if event.src_path.endswith(".py"):
+                    logger.info(
+                        f"Change detected in {Colors.BOLD}{os.path.basename(event.src_path)}{Colors.ENDC}. Reloading..."
+                    )
                     self.arbiter.stop_workers(signal.SIGTERM)
 
         self.reloader = Observer()
-        self.reloader.schedule(ReloadHandler(self), os.getcwd(), recursive=True)
+        self.reloader.schedule(ReloadHandler(
+            self), os.getcwd(), recursive=True)
         self.reloader.start()
-        logger.info(f"Auto-reload {Colors.GREEN}enabled{Colors.ENDC} (watchdog)")
+        logger.info(
+            f"Auto-reload {Colors.GREEN}enabled{Colors.ENDC} (watchdog)")
 
     def daemonize(self):
         """Standard double-fork daemonization."""
-        if os.fork() > 0: sys.exit(0)
+        if os.fork() > 0:
+            sys.exit(0)
         os.setsid()
-        if os.fork() > 0: sys.exit(0)
-        
+        if os.fork() > 0:
+            sys.exit(0)
+
         # Redirect standard file descriptors
         sys.stdout.flush()
         sys.stderr.flush()
-        si = open(os.devnull, 'r')
-        so = open(os.devnull, 'a+')
-        se = open(os.devnull, 'a+')
+        si = open(os.devnull, "r")
+        so = open(os.devnull, "a+")
+        se = open(os.devnull, "a+")
         os.dup2(si.fileno(), sys.stdin.fileno())
         os.dup2(so.fileno(), sys.stdout.fileno())
         os.dup2(se.fileno(), sys.stderr.fileno())
 
     def write_pid(self):
-        with open(self.pidfile, 'w') as f:
+        with open(self.pidfile, "w") as f:
             f.write(str(os.getpid()))
 
     def switch_user(self):
         if not self.user and not self.group:
             return
-        import pwd, grp
+        import pwd
+        import grp
+
         if self.group:
             gid = grp.getgrnam(self.group).gr_gid
             os.setgid(gid)
@@ -199,6 +268,7 @@ class Arbiter:
 
     def stop_workers(self, sig):
         import psutil
+
         for pid in list(self.workers.keys()):
             try:
                 p = psutil.Process(pid)
@@ -208,10 +278,12 @@ class Arbiter:
                     del self.workers[pid]
 
     def spawn_worker(self):
-        worker = self.worker_class(0, self.pid, self.socks, self.app_path, self.timeout, **self.worker_kwargs)
+        worker = self.worker_class(
+            0, self.pid, self.socks, self.app_path, self.timeout, **self.worker_kwargs
+        )
         pid = os.fork()
-        
-        if pid == 0: # Child
+
+        if pid == 0:  # Child
             try:
                 self.switch_user()
                 worker.init_process()
@@ -220,11 +292,19 @@ class Arbiter:
             except Exception as e:
                 logger.error(f"Worker error: {e}")
                 sys.exit(1)
-        else: # Parent
+        else:  # Parent
             self.workers[pid] = worker
             if self.statsd:
                 self.statsd.increment("workers.spawn")
                 self.statsd.gauge("workers.count", len(self.workers))
+            if self.stash:
+                try:
+                    self.stash.set(
+                        "metrics.workers_count", str(
+                            len(self.workers)).encode("utf-8")
+                    )
+                except Exception:
+                    pass
             return pid
 
     def manage_workers(self):
@@ -232,7 +312,7 @@ class Arbiter:
             # Maintain worker count
             while len(self.workers) < self.num_workers:
                 self.spawn_worker()
-            
+
             # Reaping dead children
             try:
                 pid, status = os.waitpid(-1, os.WNOHANG)
@@ -241,20 +321,30 @@ class Arbiter:
                         del self.workers[pid]
                         if self.statsd:
                             self.statsd.increment("workers.exit")
-                            self.statsd.gauge("workers.count", len(self.workers))
+                            self.statsd.gauge(
+                                "workers.count", len(self.workers))
                     pid, status = os.waitpid(-1, os.WNOHANG)
             except ChildProcessError:
                 pass
-                
+
+            if self.stash:
+                try:
+                    self.stash.set(
+                        "metrics.workers_count", str(
+                            len(self.workers)).encode("utf-8")
+                    )
+                except Exception:
+                    pass
+
             time.sleep(1.0)
-            
+
         # Cleanup
         if self.reloader:
             self.reloader.stop()
             self.reloader.join()
-        
+
         logger.info("Asteri shutting down. Waiting for workers...")
-        
+
         # Wait for workers to exit (graceful wait)
         wait_start = time.time()
         while self.workers and (time.time() - wait_start < 10):
@@ -267,7 +357,7 @@ class Arbiter:
                     time.sleep(0.1)
             except ChildProcessError:
                 break
-        
+
         # Force kill any remaining workers
         if self.workers:
             logger.warning(f"Forcing {len(self.workers)} workers to exit...")
@@ -277,9 +367,9 @@ class Arbiter:
         for sock in self.socks:
             try:
                 sock.close()
-            except:
+            except Exception:
                 pass
-        
+
         if self.pidfile and os.path.exists(self.pidfile):
             os.remove(self.pidfile)
 
@@ -287,36 +377,36 @@ class Arbiter:
         import socket
         import threading
         import json
-        
+
         addr = self.control_socket
         if os.path.exists(addr):
             try:
                 os.unlink(addr)
             except OSError:
                 pass
-                
+
         server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         server_sock.bind(addr)
         server_sock.listen(5)
         server_sock.settimeout(1.0)
         self.control_sock_server = server_sock
-        
+
         def handle_client(conn):
             conn.settimeout(3.0)
             try:
                 data = conn.recv(1024)
                 if not data:
                     return
-                req = json.loads(data.decode('utf-8'))
+                req = json.loads(data.decode("utf-8"))
                 cmd = req.get("command")
-                
+
                 resp = {"status": "ok"}
                 if cmd == "status":
                     resp = {
                         "status": "running",
                         "pid": os.getpid(),
                         "workers_count": len(self.workers),
-                        "num_workers": self.num_workers
+                        "num_workers": self.num_workers,
                     }
                 elif cmd == "reload":
                     os.kill(os.getpid(), signal.SIGHUP)
@@ -326,17 +416,23 @@ class Arbiter:
                     resp = {"status": "added", "num_workers": self.num_workers}
                 elif cmd == "remove-worker":
                     self.num_workers = max(1, self.num_workers - 1)
-                    resp = {"status": "removed", "num_workers": self.num_workers}
+                    resp = {"status": "removed",
+                            "num_workers": self.num_workers}
                 elif cmd == "stop":
                     self.alive = False
                     resp = {"status": "stopping"}
                 else:
-                    resp = {"status": "error", "message": f"unknown command '{cmd}'"}
-                    
-                conn.sendall(json.dumps(resp).encode('utf-8'))
+                    resp = {"status": "error",
+                            "message": f"unknown command '{cmd}'"}
+
+                conn.sendall(json.dumps(resp).encode("utf-8"))
             except Exception as e:
                 try:
-                    conn.sendall(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
+                    conn.sendall(
+                        json.dumps({"status": "error", "message": str(e)}).encode(
+                            "utf-8"
+                        )
+                    )
                 except OSError:
                     pass
             finally:
@@ -344,12 +440,14 @@ class Arbiter:
                     conn.close()
                 except OSError:
                     pass
-                    
+
         def run_server():
             while self.alive:
                 try:
                     conn, _ = server_sock.accept()
-                    threading.Thread(target=handle_client, args=(conn,), daemon=True).start()
+                    threading.Thread(
+                        target=handle_client, args=(conn,), daemon=True
+                    ).start()
                 except socket.timeout:
                     continue
                 except OSError:
@@ -363,5 +461,5 @@ class Arbiter:
                     os.unlink(addr)
                 except OSError:
                     pass
-                    
+
         threading.Thread(target=run_server, daemon=True).start()

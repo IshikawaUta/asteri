@@ -27,6 +27,15 @@ jobs:
         pip install setuptools wheel build psutil gevent watchdog h2
         pip install -e .
         pip install flask fastapi tornado
+        pip install ruff mypy types-psutil types-setuptools
+
+    - name: Run Ruff Static Analysis
+      run: |
+        ruff check .
+
+    - name: Run Mypy Type Checking
+      run: |
+        mypy asteri tests --ignore-missing-imports
 
     - name: Verify CLI Version
       run: |

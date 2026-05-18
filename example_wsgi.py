@@ -1,9 +1,9 @@
 def app(environ, start_response):
     """Simple WSGI Application with premium Asteri styling."""
-    status = '200 OK'
-    headers = [('Content-Type', 'text/html; charset=utf-8')]
+    status = "200 OK"
+    headers = [("Content-Type", "text/html; charset=utf-8")]
     start_response(status, headers)
-    
+
     html = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -116,9 +116,9 @@ def app(environ, start_response):
         <h1>🌟 Hello from Asteri</h1>
         <p>This high-performance WSGI application is powered by the fast and light Asteri web server.</p>
         <div class="footer">
-            Asteri Web Server v1.2.2 &bull; Powered by Asteri WSGI Engine
+            Asteri Web Server v2.2.2 &bull; Powered by Asteri WSGI Engine
         </div>
     </div>
 </body>
 </html>"""
-    return [html.encode('utf-8')]
+    return [html.encode("utf-8")]

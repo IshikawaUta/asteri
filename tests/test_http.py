@@ -1,5 +1,6 @@
 import unittest
-from asteri.http import HTTPParser, HTTPRequest, HTTP2Handler, build_http_response
+from asteri.http import HTTPParser, HTTP2Handler, build_http_response
+
 
 class TestHTTP(unittest.TestCase):
     def test_parse_valid_get(self):
@@ -34,7 +35,7 @@ class TestHTTP(unittest.TestCase):
     def test_build_http_response_string_body(self):
         headers = {"Content-Type": "text/plain", "X-Custom": "Value"}
         resp = build_http_response(200, headers, "Hello")
-        
+
         expected_start = b"HTTP/1.1 200 OK\r\n"
         self.assertTrue(resp.startswith(expected_start))
         self.assertIn(b"Content-Type: text/plain\r\n", resp)
@@ -54,6 +55,7 @@ class TestHTTP(unittest.TestCase):
         self.assertTrue(HTTP2Handler.is_http2(preface))
         self.assertTrue(HTTP2Handler.is_http2(preface + b"extra data"))
         self.assertFalse(HTTP2Handler.is_http2(b"GET / HTTP/1.1\r\n"))
+
 
 if __name__ == "__main__":
     unittest.main()
