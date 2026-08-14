@@ -22,8 +22,8 @@ class GThreadWorker(SyncWorker):
 
                     for sock in readable:
                         client, addr = sock.accept()
-                        executor.submit(self.handle_request,
-                                        client, listener_sock=sock)
+                        executor.submit(
+                            self._run_guarded, client, sock)
 
                     # Check master
                     if os.getppid() != self.ppid:
@@ -33,3 +33,13 @@ class GThreadWorker(SyncWorker):
                     continue
                 except Exception:
                     time.sleep(0.1)
+
+    def _run_guarded(self, client, listener_sock):
+        if not self.acquire_connection(client):
+            return
+        try:
+            self.handle_request(client, listener_sock=listener_sock)
+        except Exception:
+            pass
+        finally:
+            self.release_connection()
