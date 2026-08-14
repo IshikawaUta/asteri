@@ -57,7 +57,7 @@ def main():
     config_group = parser.add_argument_group("Config")
     config_group.add_argument("-c", "--config", help="The Asteri config file.")
     config_group.add_argument(
-        "-v", "--version", action="version", version="Asteri v2.2.2"
+        "-v", "--version", action="version", version="Asteri v3.0.0"
     )
     config_group.add_argument(
         "--check-config", action="store_true", help="Check the configuration and exit."
@@ -78,6 +78,12 @@ def main():
     )
     net_group.add_argument(
         "--reuse-port", action="store_true", help="Set the SO_REUSEPORT flag."
+    )
+    net_group.add_argument(
+        "--proxy-protocol",
+        action="store_true",
+        help="Accept HAProxy PROXY protocol (v1/v2) on incoming connections. "
+        "Disable this unless your server sits behind a trusted load balancer.",
     )
 
     # Worker Group
@@ -178,6 +184,17 @@ def main():
         help="Disable the /asteri-status dashboard.",
     )
     proc_group.add_argument(
+        "--disable-metrics",
+        action="store_true",
+        help="Disable the internal Prometheus /metrics endpoint.",
+    )
+    proc_group.add_argument(
+        "--max-body-size",
+        type=int,
+        default=0,
+        help="Maximum accepted request body size in bytes (0 = unlimited).",
+    )
+    proc_group.add_argument(
         "--control-socket", help="Path to Unix domain socket for administration."
     )
     proc_group.add_argument(
@@ -215,6 +232,10 @@ def main():
 
     # 1. Load Config File if provided
     if args.config and os.path.exists(args.config):
+        logger.warning(
+            f"{Colors.YELLOW}Loading config file executes arbitrary Python code "
+            f"({args.config}). Only use config files from trusted sources.{Colors.ENDC}"
+        )
         config_namespace = {}
         with open(args.config) as f:
             exec(f.read(), config_namespace)
@@ -251,6 +272,9 @@ def main():
             "name": ["-n", "--name"],
             "reload": ["--reload"],
             "disable_dashboard": ["--disable-dashboard"],
+            "disable_metrics": ["--disable-metrics"],
+            "proxy_protocol": ["--proxy-protocol"],
+            "max_body_size": ["--max-body-size"],
             "limit_request_line": ["--limit-request-line"],
             "limit_request_fields": ["--limit-request-fields"],
             "limit_request_field_size": ["--limit-request-field_size"],
@@ -376,6 +400,9 @@ def main():
         reload=args.reload,
         certfile=args.certfile,
         keyfile=args.keyfile,
+        ca_certs=args.ca_certs,
+        ssl_version=args.ssl_version,
+        ciphers=args.ciphers,
         daemon=args.daemon,
         pidfile=args.pid,
         user=args.user,
@@ -386,8 +413,16 @@ def main():
         backlog=args.backlog,
         reuse_port=args.reuse_port,
         threads=args.threads,
+        keep_alive=args.keep_alive,
         worker_connections=args.worker_connections,
         disable_dashboard=args.disable_dashboard,
+        disable_metrics=args.disable_metrics,
+        proxy_protocol=args.proxy_protocol,
+        max_body_size=args.max_body_size,
+        limit_request_line=args.limit_request_line,
+        limit_request_fields=args.limit_request_fields,
+        limit_request_field_size=args.limit_request_field_size,
+        http2_max_concurrent_streams=args.http2_max_concurrent_streams,
         control_socket=args.control_socket,
         dirty_apps=args.dirty_apps,
         stash_address=args.stash_address,
