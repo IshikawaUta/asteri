@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -15,6 +22,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
@@ -26,8 +35,8 @@ jobs:
         python -m pip install --upgrade pip
         pip install setuptools wheel build psutil gevent watchdog h2
         pip install -e .
-        pip install flask fastapi tornado
-        pip install ruff mypy types-psutil types-setuptools
+        pip install flask fastapi tornado gunicorn uvicorn
+        pip install ruff mypy types-psutil types-setuptools pytest pytest-cov coverage
 
     - name: Run Ruff Static Analysis
       run: |
@@ -41,9 +50,17 @@ jobs:
       run: |
         asteri --version
 
-    - name: Run Unit Tests
+    - name: Run Unit Tests with Coverage
       run: |
-        python -m unittest discover -s tests --buffer
+        pytest tests/ -q --cov=asteri --cov-report=xml:coverage.xml --cov-report=term
+
+    - name: Upload coverage to Codecov
+      if: matrix.python-version == '3.12'
+      uses: codecov/codecov-action@v5
+      with:
+        files: coverage.xml
+        fail_ci_if_error: false
+        verbose: true
 
     - name: Run Full Regression Suite
       run: |
