@@ -1,4 +1,5 @@
 import io
+import inspect
 import os
 import sys
 import tempfile
@@ -235,6 +236,13 @@ class TestMainCLI(unittest.TestCase):
 
     def test_asgi_signature_value_error_swallowed(self):
         arb_mock = mock.Mock()
+        real_signature = inspect.signature
+
+        def _signature_raising_for_app(target, *args, **kwargs):
+            if isinstance(target, FakeWSGI):
+                raise ValueError("boom")
+            return real_signature(target, *args, **kwargs)
+
         with mock.patch("asteri.__main__.print_banner"):
             with mock.patch("asteri.__main__.import_app",
                             return_value=FakeWSGI()):
@@ -242,7 +250,7 @@ class TestMainCLI(unittest.TestCase):
                     with mock.patch("asteri.__main__.setup_logging"):
                         with mock.patch("asteri.__main__.setup_access_logging"):
                             with mock.patch("inspect.signature",
-                                            side_effect=ValueError):
+                                            side_effect=_signature_raising_for_app):
                                 with mock.patch.object(
                                     sys, "argv",
                                     ["asteri", "app:app", "-k", "sync"]):

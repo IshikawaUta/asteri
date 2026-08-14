@@ -1146,7 +1146,8 @@ class TestHttp2EdgeCases(unittest.TestCase):
             w.app = Mock()
             conn = Mock()
             conn.data_to_send.return_value = b""
-            ev = h2.events.RequestReceived(stream_id=1)
+            ev = object.__new__(h2.events.RequestReceived)
+            ev.stream_id = 1
             ev.headers = [(b":method", b"GET"), (b":path", b"/")]
             ev.stream_ended = False
             conn.receive_data.return_value = [ev]
@@ -1164,7 +1165,8 @@ class TestHttp2EdgeCases(unittest.TestCase):
             w.app = Mock()
             conn = Mock()
             conn.data_to_send.return_value = b""
-            reset_ev = h2.events.StreamReset(stream_id=7)
+            reset_ev = object.__new__(h2.events.StreamReset)
+            reset_ev.stream_id = 7
             conn.receive_data.side_effect = [
                 [reset_ev],
                 Exception("bad protocol"),
