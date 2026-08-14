@@ -39,6 +39,7 @@ class TLV:
 OP_SET = 1
 OP_GET = 2
 OP_DELETE = 3
+OP_INCREMENT = 4
 OP_SUCCESS = 101
 OP_NOT_FOUND = 102
 OP_ERROR = 103
@@ -157,6 +158,22 @@ class StashServer:
                     return TLV.encode(OP_SUCCESS, b"")
                 return TLV.encode(OP_NOT_FOUND, b"")
 
+            elif op == OP_INCREMENT:
+                kt, k_bytes, rem = TLV.decode(payload)
+                if kt is None:
+                    return TLV.encode(OP_ERROR, b"Invalid INCREMENT key")
+                if len(rem) < 8:
+                    return TLV.encode(OP_ERROR, b"Invalid INCREMENT delta")
+                delta = struct.unpack(">q", rem[:8])[0]
+                key = k_bytes.decode("utf-8")
+                try:
+                    current = int(self.data.get(key, b"0").decode("utf-8"))
+                except (ValueError, UnicodeDecodeError):
+                    current = 0
+                result = current + delta
+                self.data[key] = str(result).encode("utf-8")
+                return TLV.encode(OP_SUCCESS, str(result).encode("utf-8"))
+
             return TLV.encode(OP_ERROR, b"Unknown operation")
         except Exception as e:
             return TLV.encode(OP_ERROR, str(e).encode("utf-8"))
@@ -210,6 +227,12 @@ class StashClient:
 
     def delete(self, key: str) -> bool:
         t, val = self._send_request(OP_DELETE, key.encode("utf-8"))
+        return t == OP_SUCCESS
+
+    def increment(self, key: str, delta: int = 1) -> bool:
+        """Atomically increase a numeric counter in the shared store."""
+        payload = TLV.encode(1, key.encode("utf-8")) + struct.pack(">q", delta)
+        t, val = self._send_request(OP_INCREMENT, payload)
         return t == OP_SUCCESS
 
 
