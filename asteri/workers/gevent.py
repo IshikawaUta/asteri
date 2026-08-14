@@ -3,9 +3,9 @@ from .sync import SyncWorker
 from ..utils import logger
 
 try:
-    import gevent
-    import gevent.monkey
-    from gevent.server import StreamServer
+    import gevent  # type: ignore[import-untyped]
+    import gevent.monkey  # type: ignore[import-untyped]
+    from gevent.server import StreamServer  # type: ignore[import-untyped]
 
     GEVENT_AVAILABLE = True
 except ImportError:
@@ -16,6 +16,16 @@ class GeventWorker(SyncWorker):
     def __init__(self, age, ppid, sockets, app, timeout, **kwargs):
         super().__init__(age, ppid, sockets, app, timeout, **kwargs)
 
+    def init_process(self):
+        if not GEVENT_AVAILABLE:
+            raise RuntimeError(
+                "Gevent is not installed. Please install it with 'pip install gevent' to use this worker."
+            )
+        # Monkey patch before importing the application so it uses
+        # gevent-patched stdlib modules from the very start.
+        gevent.monkey.patch_all()
+        super().init_process()
+
     def run(self):
         if not GEVENT_AVAILABLE:
             logger.error(
@@ -23,19 +33,23 @@ class GeventWorker(SyncWorker):
             )
             return
 
-        # Monkey patch
-        gevent.monkey.patch_all()
-
-        self.init_process()
-
         # Spawn a StreamServer for each socket
         servers = []
         for sock in self.sockets:
 
             def handle_factory(listener_sock):
-                return lambda client_sock, address: self.handle_request(
-                    client_sock, listener_sock=listener_sock
-                )
+                def handler(client_sock, address):
+                    if not self.acquire_connection(client_sock):
+                        return
+                    try:
+                        self.handle_request(
+                            client_sock, listener_sock=listener_sock)
+                    except Exception:
+                        pass
+                    finally:
+                        self.release_connection()
+
+                return handler
 
             server = StreamServer(sock, handle_factory(sock))
             servers.append(gevent.spawn(server.serve_forever))
