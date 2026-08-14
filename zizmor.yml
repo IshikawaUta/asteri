@@ -1,0 +1,12 @@
+# zizmor configuration for GitHub Actions security analysis.
+# See https://docs.zizmor.sh/configuration/ for the full reference.
+#
+# Policy decision: GitHub Actions are pinned to stable symbolic references
+# (e.g. actions/checkout@v4, docker/build-push-action@v6). Full SHA pinning
+# would require manual updates on every patch release, so "ref-pin" is used
+# as the blanket policy while Dependabot keeps the symbolic refs up to date.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "*": ref-pin
