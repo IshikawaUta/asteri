@@ -1,0 +1,46 @@
+name: GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Extract Changelog Section
+      id: notes
+      run: |
+        tag="${GITHUB_REF_NAME#v}"
+        notes="$(awk -v t="## v${tag}" 'BEGIN{f=0} index($0,t)==1{f=1;next} f && /^## v/{exit} f{print}' CHANGELOG.md)"
+        # Trim leading/trailing blank lines and the trailing horizontal rule
+        notes="$(printf '%s\n' "$notes" | sed '/^[[:space:]]*$/d' | sed '/^---$/d')"
+        # Write notes to a file so the release body is never interpolated as a template expression
+        printf '%s\n' "$notes" > "$RUNNER_TEMP/release-notes.md"
+        {
+          echo "notes<<EOF"
+          printf '%s\n' "$notes"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Create Release
+      run: |
+        gh release create "$GITHUB_REF_NAME" \
+          --title "$GITHUB_REF_NAME" \
+          --notes-file "$RUNNER_TEMP/release-notes.md"
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
