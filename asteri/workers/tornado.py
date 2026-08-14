@@ -124,8 +124,6 @@ class TornadoWorker(BaseWorker):
             )
             sys.exit(1)
 
-        self.init_process()
-
         # Wrap our WSGI application in our native dashboard middleware first
         wrapped_app = TornadoDashboardMiddleware(
             self.app, self.disable_dashboard, self)
