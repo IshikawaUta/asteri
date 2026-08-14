@@ -1,6 +1,8 @@
 import socket
 import struct
 import io
+import time
+import asyncio
 from .http import HTTPRequest
 from .utils import logger, access_logger, Colors
 
@@ -29,7 +31,7 @@ class QPACK:
         ("accept-language", "en-US,en;q=0.9"),
         ("content-length", ""),
         ("content-type", "text/html; charset=utf-8"),
-        ("user-agent", "Asteri/2.2.2"),
+        ("user-agent", "Asteri/3.0.0"),
     ]
 
     @classmethod
@@ -256,6 +258,40 @@ class HTTP3Handler:
     def __init__(self, worker):
         self.worker = worker
         self.connections = {}  # (ip, port) -> connection_state
+        self.connection_ttl = 300.0  # seconds before idle connections are reaped
+        self._sweeper_started = False
+
+    def start_sweeper(self):
+        """Schedule periodic reaping of stale QUIC connections."""
+        if self._sweeper_started:
+            return
+        self._sweeper_started = True
+
+        async def _sweep_loop():
+            while True:
+                await asyncio.sleep(30)
+                self.sweep_connections()
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_sweep_loop())
+        except RuntimeError:
+            self._sweeper_started = False
+
+    def sweep_connections(self):
+        """Drop QUIC connections that have been idle past connection_ttl."""
+        now = time.time()
+        stale = [
+            key
+            for key, conn in self.connections.items()
+            if now - conn.get("last_seen", now) > self.connection_ttl
+        ]
+        for key in stale:
+            self.connections.pop(key, None)
+            logger.debug(f"HTTP/3: reaped idle connection {key}")
+        if stale:
+            logger.info(
+                f"HTTP/3: reaped {len(stale)} idle connection(s)")
 
     @staticmethod
     def is_h3_packet(data: bytes) -> bool:
@@ -269,6 +305,7 @@ class HTTP3Handler:
     async def handle_packet(self, sock: socket.socket, data: bytes, addr: tuple):
         """Asynchronously process an incoming UDP packet."""
         try:
+            self.start_sweeper()
             packet = QUICPacket.parse(data)
             if not packet:
                 return
@@ -285,10 +322,11 @@ class HTTP3Handler:
                     "dcid": packet.scid,  # Use their SCID as our outgoing DCID
                     "scid": packet.dcid,
                     "streams": {},
+                    "last_seen": time.time(),
                 }
 
                 # Send Server Handshake Response Packet
-                handshake_payload = b"QUIC_HANDSHAKE_ACCEPT_2.2.2"
+                handshake_payload = b"QUIC_HANDSHAKE_ACCEPT_3.0.0"
                 resp_packet = QUICPacket(
                     QUICPacket.TYPE_HANDSHAKE,
                     dcid=packet.scid,
@@ -310,8 +348,11 @@ class HTTP3Handler:
                         "dcid": packet.dcid,
                         "scid": b"asterih3",
                         "streams": {},
+                        "last_seen": time.time(),
                     }
                     self.connections[client_key] = conn
+                else:
+                    conn["last_seen"] = time.time()
 
                 # Parse H3 Frames in the QUIC short header payload
                 frames = H3Frame.parse(packet.payload)
@@ -398,7 +439,7 @@ class HTTP3Handler:
                     # 1. Encode QPACK Headers
                     h3_resp_headers = {
                         ":status": str(status_code),
-                        "server": "Asteri/2.2.2 (HTTP/3)",
+                        "server": "Asteri/3.0.0 (HTTP/3)",
                     }
                     for k, v in headers.items():
                         h3_resp_headers[k.lower()] = v
