@@ -60,6 +60,10 @@ class Arbiter:
         self.pid = os.getpid()
         self.reloader = None
 
+        self.ca_certs = worker_kwargs.get("ca_certs", None)
+        self.ssl_version = worker_kwargs.get("ssl_version", 0)
+        self.ciphers = worker_kwargs.get("ciphers", None)
+
         self.statsd_host = worker_kwargs.get("statsd_host", None)
         self.statsd_port = worker_kwargs.get("statsd_port", 8125)
         self.statsd_prefix = worker_kwargs.get("statsd_prefix", "asteri")
@@ -144,13 +148,9 @@ class Arbiter:
                                         socket.SO_REUSEPORT, 1)
 
                     if self.certfile and self.keyfile:
-                        import ssl
-
-                        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-                        context.load_cert_chain(
-                            certfile=self.certfile, keyfile=self.keyfile
+                        sock = self.build_ssl_context().wrap_socket(
+                            sock, server_side=True
                         )
-                        sock = context.wrap_socket(sock, server_side=True)
 
                     sock.bind((host, int(port)))
                     sock.listen(self.backlog)
@@ -276,6 +276,36 @@ class Arbiter:
             except psutil.NoSuchProcess:
                 if pid in self.workers:
                     del self.workers[pid]
+
+    def build_ssl_context(self):
+        """Construct a hardened SSLContext from the provided SSL options."""
+        import ssl
+
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(
+            certfile=self.certfile, keyfile=self.keyfile
+        )
+
+        # Enforce client certificate verification when a CA bundle is provided
+        if self.ca_certs:
+            context.load_verify_locations(cafile=self.ca_certs)
+            context.verify_mode = ssl.CERT_REQUIRED
+
+        if self.ciphers:
+            context.set_ciphers(self.ciphers)
+
+        # Map the legacy integer --ssl-version value onto a minimum TLS version
+        min_version = {
+            0: ssl.TLSVersion.MINIMUM_SUPPORTED,
+            1: ssl.TLSVersion.TLSv1,
+            2: ssl.TLSVersion.TLSv1_1,
+            3: ssl.TLSVersion.TLSv1_2,
+            4: ssl.TLSVersion.TLSv1_3,
+        }.get(int(self.ssl_version or 0))
+        if min_version is not None:
+            context.minimum_version = min_version
+
+        return context
 
     def spawn_worker(self):
         worker = self.worker_class(
