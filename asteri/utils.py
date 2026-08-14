@@ -1,8 +1,58 @@
 import logging
 import os
 import sys
+import io
 import importlib
 import re
+import errno
+
+
+class NonBlockingStream:
+    """Wrap a stream so writes never block when the underlying pipe is full.
+
+    Pipes (e.g. subprocess.PIPE) that are never drained fill up quickly under
+    access-log traffic; a blocked write would stall SIGTERM shutdown. This
+    wrapper marks the fd non-blocking and drops lines instead of hanging.
+    """
+
+    def __init__(self, stream):
+        self._stream = stream
+        try:
+            import fcntl
+
+            fd = stream.fileno()
+            flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+            fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        except (AttributeError, OSError, ImportError, io.UnsupportedOperation):
+            pass
+
+    def write(self, data):
+        try:
+            return self._stream.write(data)
+        except BlockingIOError:
+            return len(data)
+        except OSError as e:
+            if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK, errno.ENOSPC):
+                return len(data)
+            raise
+
+    def flush(self):
+        try:
+            self._stream.flush()
+        except (BlockingIOError, OSError):
+            pass
+
+    def fileno(self):
+        return self._stream.fileno()
+
+    def isatty(self):
+        try:
+            return self._stream.isatty()
+        except (OSError, ValueError):
+            return False
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
 
 
 class Colors:
@@ -43,7 +93,7 @@ def setup_logging(level=logging.INFO, log_file=None, capture_output=False):
             logger.removeHandler(handler)
 
     # Console handler
-    handler = logging.StreamHandler(sys.stdout)
+    handler = logging.StreamHandler(NonBlockingStream(sys.stdout))
     formatter = PrettyFormatter(datefmt="%H:%M:%S")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
@@ -96,6 +146,13 @@ def setup_access_logging(log_file=None, log_format=None):
     logger.setLevel(logging.INFO)
     logger.propagate = False  # Don't send to root logger
 
+    # Allow disabling access logging for high-throughput deployments/benchmarks
+    if os.environ.get("ASTERI_NO_ACCESS_LOG", "").strip().lower() in (
+        "1", "true", "yes", "on"
+    ):
+        logger.disabled = True
+        return logger
+
     if logger.handlers:
         for handler in list(logger.handlers):
             logger.removeHandler(handler)
@@ -108,7 +165,7 @@ def setup_access_logging(log_file=None, log_format=None):
         logger.addHandler(file_handler)
     else:
         # Default to stdout if no file is specified
-        handler = logging.StreamHandler(sys.stdout)
+        handler = logging.StreamHandler(NonBlockingStream(sys.stdout))
         handler.setFormatter(logging.Formatter(fmt_str))
         logger.addHandler(handler)
 
@@ -122,7 +179,7 @@ access_logger = logging.getLogger("asteri.access")
 def print_banner():
     banner = f"""
         {Colors.BOLD}{Colors.PURPLE}*ASTERI*{Colors.ENDC}
-         {Colors.CYAN}v2.2.2{Colors.ENDC}
+         {Colors.CYAN}v3.0.0{Colors.ENDC}
     {Colors.BOLD}{Colors.CYAN}ASTERI{Colors.ENDC} {Colors.YELLOW}Web Server{Colors.ENDC}
     """
     print(banner)
@@ -395,7 +452,7 @@ def build_status_html(worker_type, pid, ppid):
         </div>
         
         <div class="footer">
-            Asteri Web Server v2.2.2 &bull; {datetime.now().strftime("%H:%M:%S")}
+            Asteri Web Server v3.0.0 &bull; {datetime.now().strftime("%H:%M:%S")}
         </div>
     </div>
 </body>
