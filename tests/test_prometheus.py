@@ -101,6 +101,7 @@ class TestPrometheusIntegration(unittest.TestCase):
 
             # Record some metrics that will get written to the Stash server IPC store
             self.worker.increment_request_metric("GET", "HTTP/1.1", 200)
+            self.worker._flush_metrics(force=True)
 
             # Directly verify increment occurred in the Stash server storage
             wc_val = self.worker.stash.get(
