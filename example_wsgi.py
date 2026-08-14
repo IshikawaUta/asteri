@@ -116,7 +116,7 @@ def app(environ, start_response):
         <h1>🌟 Hello from Asteri</h1>
         <p>This high-performance WSGI application is powered by the fast and light Asteri web server.</p>
         <div class="footer">
-            Asteri Web Server v2.2.2 &bull; Powered by Asteri WSGI Engine
+            Asteri Web Server v3.0.0 &bull; Powered by Asteri WSGI Engine
         </div>
     </div>
 </body>

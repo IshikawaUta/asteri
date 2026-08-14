@@ -137,7 +137,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <p>This is a standard Flask application running on the high-performance Asteri web server.</p>
         <p>Try running with: <code>python3 -m asteri example_flask:app -k gthread -w 4</code></p>
         <div class="footer">
-            Asteri Web Server v2.2.2 &bull; Powered by Flask WSGI Engine
+            Asteri Web Server v3.0.0 &bull; Powered by Flask WSGI Engine
         </div>
     </div>
 </body>

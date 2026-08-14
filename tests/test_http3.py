@@ -131,7 +131,7 @@ class TestHTTP3Handler(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resp_pkt.ptype, QUICPacket.TYPE_HANDSHAKE)
         self.assertEqual(resp_pkt.dcid, scid)
         self.assertEqual(resp_pkt.scid, dcid)
-        self.assertEqual(resp_pkt.payload, b"QUIC_HANDSHAKE_ACCEPT_2.2.2")
+        self.assertEqual(resp_pkt.payload, b"QUIC_HANDSHAKE_ACCEPT_3.0.0")
 
     async def test_h3_asgi_request_routing(self):
         """Verify end-to-end ASGI application request routing over HTTP/3 UDP."""

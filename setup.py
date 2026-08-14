@@ -7,7 +7,7 @@ ext_modules = [Extension("asteri.fastparser", ["asteri/fastparser.c"])]
 
 setup(
     name="asteri",
-    version="2.2.2",
+    version="3.0.0",
     author="Ishikawa Uta",
     description="Asteri: High Performance Python Web Server",
     long_description=long_description,

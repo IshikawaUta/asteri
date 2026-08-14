@@ -414,7 +414,7 @@ async def app(scope, receive, send):
         </div>
 
         <div class="footer">
-            Asteri Web Server v2.2.2 &bull; Built with premium performance in mind.
+            Asteri Web Server v3.0.0 &bull; Built with premium performance in mind.
         </div>
     </div>
 

@@ -167,7 +167,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
 
         <div class="footer">
-            Asteri Web Server v2.2.2 &bull; Powered by Tornado Async Engine
+            Asteri Web Server v3.0.0 &bull; Powered by Tornado Async Engine
         </div>
     </div>
 </body>

@@ -73,7 +73,7 @@ class TestAsteriCLI(unittest.TestCase):
             self.bin_name + ["-v"], capture_output=True, text=True, env=self.test_env
         )
         self.assertEqual(result.returncode, 0)
-        self.assertIn("Asteri v2.2.2", result.stdout)
+        self.assertIn("Asteri v3.0.0", result.stdout)
 
     def test_print_config(self):
         result = subprocess.run(
