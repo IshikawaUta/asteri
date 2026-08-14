@@ -5,8 +5,8 @@
 [![License: MIT](https://img.shields.io/pypi/l/asteri.svg)](LICENSE)
 [![Tests](https://github.com/IshikawaUta/asteri/actions/workflows/python-tests.yml/badge.svg)](https://github.com/IshikawaUta/asteri/actions/workflows/python-tests.yml)
 [![codecov](https://codecov.io/gh/IshikawaUta/asteri/branch/main/graph/badge.svg)](https://codecov.io/gh/IshikawaUta/asteri)
-[![CodSpeed](https://img.shields.io/badge/CodSpeed-performance-5A9B4C)](https://codspeed.io/IshikawaUta/asteri)
-[![Security](https://img.shields.io/badge/security-zizmor-2A6DB2)](https://docs.zizmor.sh/)
+[![CodSpeed](https://img.shields.io/endpoint?url=https://app.codspeed.io//badge.json)](https://app.codspeed.io//IshikawaUta/asteri?utm_source=badge)
+[![Security](https://img.shields.io/badge/%F0%9F%8C%88-zizmor-white?labelColor=white)](https://zizmor.sh/)
 [![Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Mypy](https://img.shields.io/badge/typing-mypy-2A6DB2.svg)](https://github.com/python/mypy)
 
