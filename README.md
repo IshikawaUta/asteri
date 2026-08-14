@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/pypi/l/asteri.svg)](LICENSE)
 [![Tests](https://github.com/IshikawaUta/asteri/actions/workflows/python-tests.yml/badge.svg)](https://github.com/IshikawaUta/asteri/actions/workflows/python-tests.yml)
 [![codecov](https://codecov.io/gh/IshikawaUta/asteri/branch/main/graph/badge.svg)](https://codecov.io/gh/IshikawaUta/asteri)
-[![CodSpeed](https://img.shields.io/badge/CodSpeed-performance-5A9B4C)](https://codspeed.io/IshikawaUta/asteri)
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/IshikawaUta/asteri?utm_source=badge)
 [![Security](https://img.shields.io/badge/security-zizmor-2A6DB2)](https://docs.zizmor.sh/)
 [![Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Mypy](https://img.shields.io/badge/typing-mypy-2A6DB2.svg)](https://github.com/python/mypy)
@@ -73,6 +73,16 @@ Local rigorous concurrency benchmark (median of 5 runs, 8,000 requests, 50 concu
 | 🌟 **Asteri (Tornado)** | **WSGI** | **559.25** | **89.41** |
 
 Asteri's native ASGI engine leads the pack in throughput and latency; every WSGI archetype outpaces Gunicorn.
+
+### ⏱️ Continuous micro-benchmarks
+
+Every push and pull request runs the `benchmarks/` suite on [CodSpeed](https://app.codspeed.io/IshikawaUta/asteri) in CPU simulation mode, so performance regressions on the request hot paths are caught before they are merged. The suite covers HTTP/1.1 parsing (C extension **and** pure-Python fallback), header handling and limits, chunked/content-length body framing, response building, HTTP/3 QPACK + QUIC packet handling, the uWSGI binary protocol, PROXY protocol v1/v2, WebSocket framing, the Stash TLV codec, and Dirty app routing.
+
+Run them locally:
+```bash
+pip install -e . pytest pytest-codspeed
+pytest benchmarks/ --codspeed
+```
 
 ---
 
