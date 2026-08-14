@@ -7,9 +7,6 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -18,6 +15,11 @@ jobs:
   benchmarks:
     name: Run CodSpeed Benchmarks
     runs-on: ubuntu-latest
+    # id-token: write is required for OIDC authentication with CodSpeed.
+    # Scoping it to this job follows GitHub's least-privilege guidance.
+    permissions:
+      contents: read
+      id-token: write
     steps:
     - uses: actions/checkout@v4
       with:
@@ -38,5 +40,4 @@ jobs:
       uses: CodSpeedHQ/action@v4
       with:
         run: python -m pytest benchmarks/ --codspeed
-        token: ${{ secrets.CODSPEED_TOKEN }}
         mode: simulation
