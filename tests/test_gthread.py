@@ -45,7 +45,7 @@ class TestGThread(unittest.TestCase):
 
             # Verify request was submitted to the thread pool executor
             mock_executor_instance.submit.assert_called_once_with(
-                worker.handle_request, mock_client, listener_sock=mock_sock
+                worker._run_guarded, mock_client, mock_sock
             )
 
 
