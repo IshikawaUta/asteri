@@ -19,6 +19,8 @@ class TestASGIProxyProtocol(unittest.TestCase):
         worker = SyncWorker(
             age=0, ppid=999, sockets=[], app_path="dummy_app:app", timeout=30
         )
+        worker.proxy_protocol = True
+        worker.keep_alive = 0
         worker.app = MagicMock(return_value=[b"hello"])
         # Mock handle_request's socket reading flow
         # In base.py: chunk = client_sock.recv(4096)
@@ -85,6 +87,7 @@ class TestASGIProxyProtocol(unittest.TestCase):
             worker = ASGIWorker(
                 age=0, ppid=999, sockets=[], app_path="dummy_app:app", timeout=30
             )
+            worker.proxy_protocol = True
             worker.app = dummy_asgi_app
 
             await worker.handle_asgi_request(mock_sock)
